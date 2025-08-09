@@ -1,452 +1,281 @@
-"""
-MCP Server for OpenMemory with resilient memory client handling.
-
-This module implements an MCP (Model Context Protocol) server that provides
-memory operations for OpenMemory. The memory client is initialized lazily
-to prevent server crashes when external dependencies (like Ollama) are
-unavailable. If the memory client cannot be initialized, the server will
-continue running with limited functionality and appropriate error messages.
-
-Key features:
-- Lazy memory client initialization
-- Graceful error handling for unavailable dependencies
-- Fallback to database-only mode when vector store is unavailable
-- Proper logging for debugging connection issues
-- Environment variable parsing for API keys
-"""
-
-import contextvars
-import datetime
+# api/app/mcp_server.py
 import json
 import logging
-import uuid
+from datetime import datetime
+from typing import Optional
+from uuid import uuid4
 
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.auth import get_or_create_user_with_api_key, validate_api_key
+from app.config import DEFAULT_APP_ID
 from app.database import SessionLocal
-from app.models import Memory, MemoryAccessLog, MemoryState, MemoryStatusHistory
-from app.utils.db import get_user_and_app
+from app.models import App, Memory, User
 from app.utils.memory import get_memory_client
-from app.utils.permissions import check_memory_access_permissions
-from dotenv import load_dotenv
-from fastapi import FastAPI, Request
-from fastapi.routing import APIRouter
-from mcp.server.fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
-from qdrant_client import models as qdrant_models
 
-# Load environment variables
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-# Initialize MCP
-mcp = FastMCP("mem0-mcp-server")
 
-# Don't initialize memory client at import time - do it lazily when needed
-def get_memory_client_safe():
-    """Get memory client with error handling. Returns None if client cannot be initialized."""
-    try:
-        return get_memory_client()
-    except Exception as e:
-        logging.warning(f"Failed to get memory client: {e}")
-        return None
+class MCPMessage(BaseModel):
+    message: dict
 
-# Context variables for user_id and client_name
-user_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("user_id")
-client_name_var: contextvars.ContextVar[str] = contextvars.ContextVar("client_name")
 
-# Create a router for MCP endpoints
-mcp_router = APIRouter(prefix="/mcp")
-
-# Initialize SSE transport
-sse = SseServerTransport("/mcp/messages/")
-
-@mcp.tool(description="Add a new memory. This method is called everytime the user informs anything about themselves, their preferences, or anything that has any relevant information which can be useful in the future conversation. This can also be called when the user asks you to remember something.")
-async def add_memories(text: str) -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-
-    if not uid:
-        return "Error: user_id not provided"
-    if not client_name:
-        return "Error: client_name not provided"
-
-    # Get memory client safely
-    memory_client = get_memory_client_safe()
-    if not memory_client:
-        return "Error: Memory system is currently unavailable. Please try again later."
-
-    try:
+def setup_mcp_server(app: FastAPI):
+    """Setup MCP (Model Context Protocol) server endpoints"""
+    
+    @app.get("/mcp/{client}/sse")
+    async def mcp_sse_endpoint(
+        client: str,
+        request: Request,
+        api_key: Optional[str] = Query(None, alias="key")
+    ):
+        """SSE endpoint for MCP clients with API key authentication"""
+        
+        # Get API key from query parameter or header
+        if not api_key:
+            api_key = request.headers.get("X-API-Key")
+        
+        if not api_key:
+            raise HTTPException(status_code=401, detail="API key required")
+        
+        # Validate API key
         db = SessionLocal()
         try:
-            # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
-
-            # Check if app is active
-            if not app.is_active:
-                return f"Error: App {app.name} is currently paused on OpenMemory. Cannot create new memories."
-
-            response = memory_client.add(text,
-                                         user_id=uid,
-                                         metadata={
-                                            "source_app": "openmemory",
-                                            "mcp_client": client_name,
-                                        },
-                                        infer=False)
-            print(f"DEBUG: MCP memory_client.add response: {response}")
-            print(f"DEBUG: Response type: {type(response)}")
-
-            # Process the response and update database
-            if isinstance(response, dict) and 'results' in response:
-                for result in response['results']:
-                    memory_id = uuid.UUID(result['id'])
-                    memory = db.query(Memory).filter(Memory.id == memory_id).first()
-
-                    if result['event'] == 'ADD':
-                        if not memory:
-                            memory = Memory(
-                                id=memory_id,
-                                user_id=user.id,
-                                app_id=app.id,
-                                content=result['memory'],
-                                state=MemoryState.active
-                            )
-                            db.add(memory)
-                        else:
-                            memory.state = MemoryState.active
-                            memory.content = result['memory']
-
-                        # Create history entry
-                        history = MemoryStatusHistory(
-                            memory_id=memory_id,
-                            changed_by=user.id,
-                            old_state=MemoryState.deleted if memory else None,
-                            new_state=MemoryState.active
-                        )
-                        db.add(history)
-
-                    elif result['event'] == 'DELETE':
-                        if memory:
-                            memory.state = MemoryState.deleted
-                            memory.deleted_at = datetime.datetime.now(datetime.UTC)
-                            # Create history entry
-                            history = MemoryStatusHistory(
-                                memory_id=memory_id,
-                                changed_by=user.id,
-                                old_state=MemoryState.active,
-                                new_state=MemoryState.deleted
-                            )
-                            db.add(history)
-
-                db.commit()
-
-            if isinstance(response, dict) and 'results' in response:
-                if response['results']:
-                    successful_adds = [r for r in response['results'] if r['event'] == 'ADD']
-                    if successful_adds:
-                        return f"Successfully stored memory: '{text[:60]}{'...' if len(text) > 60 else ''}'"
-                    else:
-                        return "Memory processed successfully"
-                else:
-                    return "Memory stored successfully"
-            else:
-                return f"Memory stored: {str(response)}"
+            user = validate_api_key(api_key, db)
+            if not user:
+                raise HTTPException(status_code=401, detail="Invalid API key")
+            user_id = user.user_id
         finally:
             db.close()
-    except Exception as e:
-        logging.exception(f"Error adding to memory: {e}")
-        return f"Error adding to memory: {e}"
-
-
-@mcp.tool(description="Search through stored memories. This method is called EVERYTIME the user asks anything.")
-async def search_memory(query: str) -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
-    if not client_name:
-        return "Error: client_name not provided"
-
-    # Get memory client safely
-    memory_client = get_memory_client_safe()
-    if not memory_client:
-        return "Error: Memory system is currently unavailable. Please try again later."
-
-    try:
+        
+        logger.info(f"MCP SSE connection established for user: {user_id}, client: {client}")
+        
+        async def event_generator():
+            # Send initial connection message
+            yield f"data: {json.dumps({'type': 'connection', 'status': 'connected', 'user_id': user_id})}\n\n"
+            
+            # Keep connection alive
+            while True:
+                import asyncio
+                await asyncio.sleep(30)
+                yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+        
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+            }
+        )
+    
+    @app.post("/mcp/messages/")
+    async def handle_mcp_message(message: MCPMessage):
+        """Handle incoming MCP messages"""
+        msg = message.message
+        
+        if msg.get("method") == "add_memories":
+            return await handle_add_memories(msg.get("params", {}))
+        elif msg.get("method") == "search_memory":
+            return await handle_search_memory(msg.get("params", {}))
+        elif msg.get("method") == "list_memories":
+            return await handle_list_memories(msg.get("params", {}))
+        elif msg.get("method") == "delete_all_memories":
+            return await handle_delete_all_memories(msg.get("params", {}))
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown method: {msg.get('method')}")
+    
+    async def handle_add_memories(params: dict):
+        """Handle add_memories request from MCP client"""
+        text = params.get("text", "")
+        user_id = params.get("user_id", "default_user")
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="Text is required")
+        
+        db = SessionLocal()
+        api_key_returned = None
+        
+        try:
+            # Get or create user with API key
+            user, new_api_key = get_or_create_user_with_api_key(user_id, db)
+            
+            # If new user, store the API key to return
+            if new_api_key:
+                api_key_returned = new_api_key
+                logger.info(f"Created new user {user_id} with API key")
+            
+            # Get or create default app
+            app = db.query(App).filter(
+                App.name == DEFAULT_APP_ID,
+                App.owner_id == user.id
+            ).first()
+            
+            if not app:
+                app = App(
+                    id=uuid4(),
+                    name=DEFAULT_APP_ID,
+                    owner_id=user.id
+                )
+                db.add(app)
+                db.flush()
+            
+            # Create memory in SQL database
+            memory = Memory(
+                id=uuid4(),
+                user_id=user.id,
+                app_id=app.id,
+                content=text,
+                created_at=datetime.now(datetime.UTC)
+            )
+            db.add(memory)
+            db.commit()
+            
+            # Also add to vector store (Qdrant) with proper metadata
+            try:
+                memory_client = get_memory_client()
+                if memory_client:
+                    # Add memory with infer=False to prevent categorization
+                    memory_client.add(
+                        messages=text,
+                        user_id=user_id,
+                        metadata={
+                            "app_id": str(app.id),
+                            "memory_id": str(memory.id),
+                            "created_at": memory.created_at.isoformat()
+                        },
+                        infer=False
+                    )
+                    logger.info(f"Added memory to Qdrant for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to add memory to Qdrant: {e}")
+            
+            response = {
+                "success": True,
+                "memory_id": str(memory.id),
+                "message": "Memory added successfully"
+            }
+            
+            # Include API key if this was a new user
+            if api_key_returned:
+                response["api_key"] = api_key_returned
+                response["message"] = f"New user created! Your API key is: {api_key_returned}\nPlease save this key - it will not be shown again."
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error adding memory: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            db.close()
+    
+    async def handle_search_memory(params: dict):
+        """Handle search_memory request from MCP client"""
+        query = params.get("query", "")
+        user_id = params.get("user_id", "default_user")
+        limit = params.get("limit", 10)
+        
+        try:
+            memory_client = get_memory_client()
+            if not memory_client:
+                return {"results": [], "message": "Memory client not initialized"}
+            
+            # Search memories with user filtering
+            results = memory_client.search(
+                query=query,
+                user_id=user_id,
+                limit=limit
+            )
+            
+            return {
+                "results": results.get("results", []),
+                "total": len(results.get("results", []))
+            }
+            
+        except Exception as e:
+            logger.error(f"Error searching memories: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    async def handle_list_memories(params: dict):
+        """Handle list_memories request from MCP client"""
+        user_id = params.get("user_id", "default_user")
+        
         db = SessionLocal()
         try:
-            # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
-
-            # Get accessible memory IDs based on ACL
-            user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
-            accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
+            # Get user
+            user = db.query(User).filter(User.user_id == user_id).first()
+            if not user:
+                return {"memories": [], "total": 0}
             
-            conditions = [qdrant_models.FieldCondition(key="user_id", match=qdrant_models.MatchValue(value=uid))]
+            # Get all memories for user
+            memories = db.query(Memory).filter(
+                Memory.user_id == user.id,
+                Memory.state == "active"
+            ).order_by(Memory.created_at.desc()).all()
             
-            if accessible_memory_ids:
-                # Convert UUIDs to strings for Qdrant
-                accessible_memory_ids_str = [str(memory_id) for memory_id in accessible_memory_ids]
-                conditions.append(qdrant_models.HasIdCondition(has_id=accessible_memory_ids_str))
-
-            filters = qdrant_models.Filter(must=conditions)
-            embeddings = memory_client.embedding_model.embed(query, "search")
-            
-            hits = memory_client.vector_store.client.query_points(
-                collection_name=memory_client.vector_store.collection_name,
-                query=embeddings,
-                query_filter=filters,
-                limit=10,
-            )
-
-            # Process search results
-            memories = hits.points
-            memories = [
+            memory_list = [
                 {
-                    "id": memory.id,
-                    "memory": memory.payload["data"],
-                    "hash": memory.payload.get("hash"),
-                    "created_at": memory.payload.get("created_at"),
-                    "updated_at": memory.payload.get("updated_at"),
-                    "score": memory.score,
+                    "id": str(memory.id),
+                    "content": memory.content,
+                    "created_at": memory.created_at.isoformat()
                 }
                 for memory in memories
             ]
-
-            # Log memory access for each memory found
-            if isinstance(memories, dict) and 'results' in memories:
-                print(f"Memories: {memories}")
-                for memory_data in memories['results']:
-                    if 'id' in memory_data:
-                        memory_id = uuid.UUID(memory_data['id'])
-                        # Create access log entry
-                        access_log = MemoryAccessLog(
-                            memory_id=memory_id,
-                            app_id=app.id,
-                            access_type="search",
-                            metadata_={
-                                "query": query,
-                                "score": memory_data.get('score'),
-                                "hash": memory_data.get('hash')
-                            }
-                        )
-                        db.add(access_log)
-                db.commit()
-            else:
-                for memory in memories:
-                    memory_id = uuid.UUID(memory['id'])
-                    # Create access log entry
-                    access_log = MemoryAccessLog(
-                        memory_id=memory_id,
-                        app_id=app.id,
-                        access_type="search",
-                        metadata_={
-                            "query": query,
-                            "score": memory.get('score'),
-                            "hash": memory.get('hash')
-                        }
-                    )
-                    db.add(access_log)
-                db.commit()
-            return json.dumps(memories, indent=2)
+            
+            return {
+                "memories": memory_list,
+                "total": len(memory_list)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error listing memories: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
         finally:
             db.close()
-    except Exception as e:
-        logging.exception(e)
-        return f"Error searching memory: {e}"
-
-
-@mcp.tool(description="List all memories in the user's memory")
-async def list_memories() -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
-    if not client_name:
-        return "Error: client_name not provided"
-
-    # Get memory client safely
-    memory_client = get_memory_client_safe()
-    if not memory_client:
-        return "Error: Memory system is currently unavailable. Please try again later."
-
-    try:
+    
+    async def handle_delete_all_memories(params: dict):
+        """Handle delete_all_memories request from MCP client"""
+        user_id = params.get("user_id", "default_user")
+        
         db = SessionLocal()
         try:
-            # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
-
-            # Get all memories
-            memories = memory_client.get_all(user_id=uid)
-            filtered_memories = []
-
-            # Filter memories based on permissions
-            user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
-            accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
-            if isinstance(memories, dict) and 'results' in memories:
-                for memory_data in memories['results']:
-                    if 'id' in memory_data:
-                        memory_id = uuid.UUID(memory_data['id'])
-                        if memory_id in accessible_memory_ids:
-                            # Create access log entry
-                            access_log = MemoryAccessLog(
-                                memory_id=memory_id,
-                                app_id=app.id,
-                                access_type="list",
-                                metadata_={
-                                    "hash": memory_data.get('hash')
-                                }
-                            )
-                            db.add(access_log)
-                            filtered_memories.append(memory_data)
-                db.commit()
-            else:
-                for memory in memories:
-                    memory_id = uuid.UUID(memory['id'])
-                    memory_obj = db.query(Memory).filter(Memory.id == memory_id).first()
-                    if memory_obj and check_memory_access_permissions(db, memory_obj, app.id):
-                        # Create access log entry
-                        access_log = MemoryAccessLog(
-                            memory_id=memory_id,
-                            app_id=app.id,
-                            access_type="list",
-                            metadata_={
-                                "hash": memory.get('hash')
-                            }
-                        )
-                        db.add(access_log)
-                        filtered_memories.append(memory)
-                db.commit()
-            return json.dumps(filtered_memories, indent=2)
-        finally:
-            db.close()
-    except Exception as e:
-        logging.exception(f"Error getting memories: {e}")
-        return f"Error getting memories: {e}"
-
-
-@mcp.tool(description="Delete all memories in the user's memory")
-async def delete_all_memories() -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
-    if not client_name:
-        return "Error: client_name not provided"
-
-    # Get memory client safely
-    memory_client = get_memory_client_safe()
-    if not memory_client:
-        return "Error: Memory system is currently unavailable. Please try again later."
-
-    try:
-        db = SessionLocal()
-        try:
-            # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
-
-            user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
-            accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
-
-            # delete the accessible memories only
-            for memory_id in accessible_memory_ids:
-                try:
-                    memory_client.delete(memory_id)
-                except Exception as delete_error:
-                    logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
-
-            # Update each memory's state and create history entries
-            now = datetime.datetime.now(datetime.UTC)
-            for memory_id in accessible_memory_ids:
-                memory = db.query(Memory).filter(Memory.id == memory_id).first()
-                # Update memory state
-                memory.state = MemoryState.deleted
-                memory.deleted_at = now
-
-                # Create history entry
-                history = MemoryStatusHistory(
-                    memory_id=memory_id,
-                    changed_by=user.id,
-                    old_state=MemoryState.active,
-                    new_state=MemoryState.deleted
-                )
-                db.add(history)
-
-                # Create access log entry
-                access_log = MemoryAccessLog(
-                    memory_id=memory_id,
-                    app_id=app.id,
-                    access_type="delete_all",
-                    metadata_={"operation": "bulk_delete"}
-                )
-                db.add(access_log)
-
+            # Get user
+            user = db.query(User).filter(User.user_id == user_id).first()
+            if not user:
+                return {"success": False, "message": "User not found"}
+            
+            # Soft delete all memories
+            memories = db.query(Memory).filter(
+                Memory.user_id == user.id,
+                Memory.state == "active"
+            ).all()
+            
+            for memory in memories:
+                memory.state = "deleted"
+                memory.deleted_at = datetime.now(datetime.UTC)
+            
             db.commit()
-            return "Successfully deleted all memories"
+            
+            # Also delete from vector store
+            try:
+                memory_client = get_memory_client()
+                if memory_client:
+                    memory_client.delete_all(user_id=user_id)
+            except Exception as e:
+                logger.error(f"Failed to delete from Qdrant: {e}")
+            
+            return {
+                "success": True,
+                "deleted_count": len(memories),
+                "message": f"Deleted {len(memories)} memories"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error deleting memories: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
         finally:
             db.close()
-    except Exception as e:
-        logging.exception(f"Error deleting memories: {e}")
-        return f"Error deleting memories: {e}"
-
-
-@mcp_router.get("/{client_name}/sse/{user_id}")
-async def handle_sse(request: Request):
-    """Handle SSE connections for a specific user and client"""
-    # Extract user_id and client_name from path parameters
-    uid = request.path_params.get("user_id")
-    user_token = user_id_var.set(uid or "")
-    client_name = request.path_params.get("client_name")
-    client_token = client_name_var.set(client_name or "")
-
-    try:
-        # Handle SSE connection
-        async with sse.connect_sse(
-            request.scope,
-            request.receive,
-            request._send,
-        ) as (read_stream, write_stream):
-            await mcp._mcp_server.run(
-                read_stream,
-                write_stream,
-                mcp._mcp_server.create_initialization_options(),
-            )
-    finally:
-        # Clean up context variables
-        user_id_var.reset(user_token)
-        client_name_var.reset(client_token)
-
-
-@mcp_router.post("/messages/")
-async def handle_get_message(request: Request):
-    return await handle_post_message(request)
-
-
-@mcp_router.post("/{client_name}/sse/{user_id}/messages/")
-async def handle_post_message(request: Request):
-    return await handle_post_message(request)
-
-async def handle_post_message(request: Request):
-    """Handle POST messages for SSE"""
-    try:
-        body = await request.body()
-
-        # Create a simple receive function that returns the body
-        async def receive():
-            return {"type": "http.request", "body": body, "more_body": False}
-
-        # Create a simple send function that does nothing
-        async def send(message):
-            return {}
-
-        # Call handle_post_message with the correct arguments
-        await sse.handle_post_message(request.scope, receive, send)
-
-        # Return a success response
-        return {"status": "ok"}
-    finally:
-        pass
-
-def setup_mcp_server(app: FastAPI):
-    """Setup MCP server with the FastAPI application"""
-    mcp._mcp_server.name = "mem0-mcp-server"
-
-    # Include MCP router in the FastAPI app
-    app.include_router(mcp_router)

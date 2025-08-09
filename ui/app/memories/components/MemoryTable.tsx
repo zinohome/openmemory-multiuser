@@ -1,324 +1,152 @@
-import {
-  Edit,
-  MoreHorizontal,
-  Trash2,
-  Pause,
-  Archive,
-  Play,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { useToast } from "@/hooks/use-toast";
-import { useMemoriesApi } from "@/hooks/useMemoriesApi";
-import { useDispatch, useSelector } from "react-redux";
-import { RootState } from "@/store/store";
-import {
-  selectMemory,
-  deselectMemory,
-  selectAllMemories,
-  clearSelection,
-} from "@/store/memoriesSlice";
-import SourceApp from "@/components/shared/source-app";
-import { User } from "lucide-react";
-import { HiMiniRectangleStack } from "react-icons/hi2";
-import { PiSwatches } from "react-icons/pi";
-import { GoPackage } from "react-icons/go";
-import { CiCalendar } from "react-icons/ci";
-import { useRouter } from "next/navigation";
-import Categories from "@/components/shared/categories";
-import { useUI } from "@/hooks/useUI";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { formatDate } from "@/lib/helpers";
+// ui/app/memories/components/MemoryTable.tsx
+'use client';
 
-export function MemoryTable() {
-  const { toast } = useToast();
-  const router = useRouter();
-  const dispatch = useDispatch();
-  const selectedMemoryIds = useSelector(
-    (state: RootState) => state.memories.selectedMemoryIds
-  );
-  const memories = useSelector((state: RootState) => state.memories.memories);
+import { useState, useEffect } from 'react';
+import { Trash2, Search, Calendar, User as UserIcon } from 'lucide-react';
+import { format } from 'date-fns';
+import apiService, { Memory, User } from '@/services/api';
 
-  const { deleteMemories, updateMemoryState, isLoading } = useMemoriesApi();
+interface MemoryTableProps {
+  memories: Memory[];
+  onDelete: (id: string) => void;
+  onRefresh: () => void;
+}
 
-  const handleDeleteMemory = (id: string) => {
-    deleteMemories([id]);
-  };
+export default function MemoryTable({ memories, onDelete, onRefresh }: MemoryTableProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      dispatch(selectAllMemories());
-    } else {
-      dispatch(clearSelection());
-    }
-  };
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
-  const handleSelectMemory = (id: string, checked: boolean) => {
-    if (checked) {
-      dispatch(selectMemory(id));
-    } else {
-      dispatch(deselectMemory(id));
-    }
-  };
-  const { handleOpenUpdateMemoryDialog } = useUI();
-
-  const handleEditMemory = (memory_id: string, memory_content: string) => {
-    handleOpenUpdateMemoryDialog(memory_id, memory_content);
-  };
-
-  const handleUpdateMemoryState = async (id: string, newState: string) => {
+  const fetchUsers = async () => {
     try {
-      await updateMemoryState([id], newState);
+      const userData = await apiService.getAllUsers();
+      setUsers(userData);
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update memory state",
-        variant: "destructive",
-      });
+      console.error('Failed to fetch users:', error);
     }
   };
 
-  const isAllSelected =
-    memories.length > 0 && selectedMemoryIds.length === memories.length;
-  const isPartiallySelected =
-    selectedMemoryIds.length > 0 && selectedMemoryIds.length < memories.length;
+  const filteredMemories = memories.filter(memory =>
+    memory.content.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const handleMemoryClick = (id: string) => {
-    router.push(`/memory/${id}`);
+  const getUserDisplay = (memory: Memory) => {
+    // Find user from fetched users or use memory's embedded user data
+    const user = users.find(u => u.id === memory.user_id) || memory.user;
+    
+    if (!user) {
+      return {
+        initials: '?',
+        name: 'Unknown',
+        color: '#6B7280' // gray
+      };
+    }
+
+    const name = user.name || user.user_id;
+    const initials = apiService.getUserInitials(name);
+    const color = apiService.getUserColor(user.user_id);
+
+    return { initials, name, color };
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this memory?')) return;
+    
+    setLoading(true);
+    try {
+      await onDelete(id);
+      await onRefresh();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="rounded-md border">
-      <Table className="">
-        <TableHeader>
-          <TableRow className="bg-zinc-800 hover:bg-zinc-800">
-            <TableHead className="w-[50px] pl-4">
-              <Checkbox
-                className="data-[state=checked]:border-primary border-zinc-500/50"
-                checked={isAllSelected}
-                data-state={
-                  isPartiallySelected
-                    ? "indeterminate"
-                    : isAllSelected
-                    ? "checked"
-                    : "unchecked"
-                }
-                onCheckedChange={handleSelectAll}
-              />
-            </TableHead>
-            <TableHead className="border-zinc-700">
-              <div className="flex items-center min-w-[600px]">
-                <HiMiniRectangleStack className="mr-1" />
-                Memory
-              </div>
-            </TableHead>
-            <TableHead className="border-zinc-700">
-              <div className="flex items-center">
-                <PiSwatches className="mr-1" size={15} />
-                Categories
-              </div>
-            </TableHead>
-            <TableHead className="w-[140px] border-zinc-700">
-              <div className="flex items-center">
-                <GoPackage className="mr-1" />
-                Source App
-              </div>
-            </TableHead>
-            <TableHead className="w-[120px] border-zinc-700">
-              <div className="flex items-center justify-center">
-                <User className="mr-1" size={14} />
-                Created By
-              </div>
-            </TableHead>
-            <TableHead className="w-[140px] border-zinc-700">
-              <div className="flex items-center w-full justify-center">
-                <CiCalendar className="mr-1" size={16} />
-                Created On
-              </div>
-            </TableHead>
-            <TableHead className="text-right border-zinc-700 flex justify-center">
-              <div className="flex items-center justify-end">
-                <MoreHorizontal className="h-4 w-4 mr-2" />
-              </div>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {memories.map((memory) => (
-            <TableRow
-              key={memory.id}
-              className={`hover:bg-zinc-900/50 ${
-                memory.state === "paused" || memory.state === "archived"
-                  ? "text-zinc-400"
-                  : ""
-              } ${isLoading ? "animate-pulse opacity-50" : ""}`}
-            >
-              <TableCell className="pl-4">
-                <Checkbox
-                  className="data-[state=checked]:border-primary border-zinc-500/50"
-                  checked={selectedMemoryIds.includes(memory.id)}
-                  onCheckedChange={(checked) =>
-                    handleSelectMemory(memory.id, checked as boolean)
-                  }
-                />
-              </TableCell>
-              <TableCell className="">
-                {memory.state === "paused" || memory.state === "archived" ? (
-                  <TooltipProvider>
-                    <Tooltip delayDuration={0}>
-                      <TooltipTrigger asChild>
-                        <div
-                          onClick={() => handleMemoryClick(memory.id)}
-                          className={`font-medium ${
-                            memory.state === "paused" ||
-                            memory.state === "archived"
-                              ? "text-zinc-400"
-                              : "text-white"
-                          } cursor-pointer`}
+    <div className="bg-gray-800 rounded-xl shadow-lg">
+      {/* Search Bar */}
+      <div className="p-6 border-b border-gray-700">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+          <input
+            type="text"
+            placeholder="Search memories..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="text-left text-gray-400 text-sm border-b border-gray-700">
+              <th className="px-6 py-3 font-medium">Created By</th>
+              <th className="px-6 py-3 font-medium">Memory</th>
+              <th className="px-6 py-3 font-medium">Created</th>
+              <th className="px-6 py-3 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredMemories.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
+                  No memories found
+                </td>
+              </tr>
+            ) : (
+              filteredMemories.map((memory) => {
+                const userDisplay = getUserDisplay(memory);
+                return (
+                  <tr key={memory.id} className="border-b border-gray-700 hover:bg-gray-700/50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center space-x-3">
+                        <div 
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                          style={{ backgroundColor: userDisplay.color }}
+                          title={userDisplay.name}
                         >
-                          {memory.memory}
+                          {userDisplay.initials}
                         </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>
-                          This memory is{" "}
-                          <span className="font-bold">
-                            {memory.state === "paused" ? "paused" : "archived"}
-                          </span>{" "}
-                          and <span className="font-bold">disabled</span>.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : (
-                  <div
-                    onClick={() => handleMemoryClick(memory.id)}
-                    className={`font-medium text-white cursor-pointer`}
-                  >
-                    {memory.memory}
-                  </div>
-                )}
-              </TableCell>
-              <TableCell className="">
-                <div className="flex flex-wrap gap-1">
-                  <Categories
-                    categories={memory.categories}
-                    isPaused={
-                      memory.state === "paused" || memory.state === "archived"
-                    }
-                    concat={true}
-                  />
-                </div>
-              </TableCell>
-              <TableCell className="w-[140px] text-center">
-                <SourceApp source={memory.app_name} />
-              </TableCell>
-              <TableCell className="w-[120px] text-center">
-                <div className="flex items-center justify-center">
-                  <div className="text-xs px-2 py-1 bg-zinc-800 rounded-full flex items-center space-x-1">
-                    <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${
-                      memory.user_id === 'research-lab' ? 'bg-blue-500' :
-                      memory.user_id === 'opti' ? 'bg-green-500' :
-                      memory.user_id === 'piper' ? 'bg-purple-500' :
-                      memory.user_id === 'd' ? 'bg-orange-500' : 'bg-gray-500'
-                    }`}>
-                      {memory.user_display_name ? memory.user_display_name.charAt(0).toUpperCase() : 'U'}
-                    </div>
-                    <span>{memory.user_display_name || memory.user_name}</span>
-                  </div>
-                </div>
-              </TableCell>
-              <TableCell className="w-[140px] text-center">
-                {formatDate(memory.created_at)}
-              </TableCell>
-              <TableCell className="text-right flex justify-center">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="bg-zinc-900 border-zinc-800"
-                  >
-                    <DropdownMenuItem
-                      className="cursor-pointer"
-                      onClick={() => {
-                        const newState =
-                          memory.state === "active" ? "paused" : "active";
-                        handleUpdateMemoryState(memory.id, newState);
-                      }}
-                    >
-                      {memory?.state === "active" ? (
-                        <>
-                          <Pause className="mr-2 h-4 w-4" />
-                          Pause
-                        </>
-                      ) : (
-                        <>
-                          <Play className="mr-2 h-4 w-4" />
-                          Resume
-                        </>
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="cursor-pointer"
-                      onClick={() => {
-                        const newState =
-                          memory.state === "active" ? "archived" : "active";
-                        handleUpdateMemoryState(memory.id, newState);
-                      }}
-                    >
-                      <Archive className="mr-2 h-4 w-4" />
-                      {memory?.state !== "archived" ? (
-                        <>Archive</>
-                      ) : (
-                        <>Unarchive</>
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="cursor-pointer"
-                      onClick={() => handleEditMemory(memory.id, memory.memory)}
-                    >
-                      <Edit className="mr-2 h-4 w-4" />
-                      Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="cursor-pointer text-red-500 focus:text-red-500"
-                      onClick={() => handleDeleteMemory(memory.id)}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                        <span className="text-sm text-gray-300">{userDisplay.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-gray-200 line-clamp-2">{memory.content}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center space-x-2 text-gray-400 text-sm">
+                        <Calendar className="h-4 w-4" />
+                        <span>{format(new Date(memory.created_at), 'MMM d, yyyy')}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => handleDelete(memory.id)}
+                        disabled={loading}
+                        className="text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                        title="Delete memory"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer */}
+      <div className="px-6 py-3 border-t border-gray-700 text-sm text-gray-400">
+        Showing {filteredMemories.length} of {memories.length} memories
+      </div>
     </div>
   );
 }

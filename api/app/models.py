@@ -1,14 +1,15 @@
-import datetime
-import enum
-import uuid
+# api/app/models.py
+import hashlib
+import secrets
+import string
+from datetime import datetime
+from enum import Enum as PyEnum
+from typing import Optional
+from uuid import uuid4
 
 import sqlalchemy as sa
-from app.database import Base
-from app.utils.categorization import get_categories_for_memory
 from sqlalchemy import (
     JSON,
-    UUID,
-    Boolean,
     Column,
     DateTime,
     Enum,
@@ -16,48 +17,75 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    Table,
-    event,
+    Boolean,
+    UniqueConstraint,
 )
-from sqlalchemy.orm import Session, relationship
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+
+from app.database import Base
 
 
 def get_current_utc_time():
-    """Get current UTC time"""
-    return datetime.datetime.now(datetime.UTC)
+    return datetime.now(datetime.UTC)
 
 
-class MemoryState(enum.Enum):
+def generate_api_key() -> str:
+    """Generate a secure API key in format: mem_lab_xxxxxxxxxxxx"""
+    chars = string.ascii_lowercase + string.digits
+    random_part = ''.join(secrets.choice(chars) for _ in range(12))
+    return f"mem_lab_{random_part}"
+
+
+def hash_api_key(api_key: str) -> str:
+    """Hash an API key for secure storage"""
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+class MemoryState(PyEnum):
     active = "active"
-    paused = "paused"
     archived = "archived"
     deleted = "deleted"
 
 
 class User(Base):
     __tablename__ = "users"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
-    user_id = Column(String, nullable=False, unique=True, index=True)
+    id = Column(UUID, primary_key=True, default=lambda: uuid4())
+    user_id = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=True, index=True)
-    email = Column(String, unique=True, nullable=True, index=True)
-    metadata_ = Column('metadata', JSON, default=dict)
+    email = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=get_current_utc_time, index=True)
-    updated_at = Column(DateTime,
+    updated_at = Column(DateTime, 
                         default=get_current_utc_time,
                         onupdate=get_current_utc_time)
-
+    last_active = Column(DateTime, default=get_current_utc_time)
+    
+    # API Key relationship
+    api_key = relationship("ApiKey", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    
+    # Other relationships
     apps = relationship("App", back_populates="owner")
     memories = relationship("Memory", back_populates="user")
 
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    id = Column(UUID, primary_key=True, default=lambda: uuid4())
+    user_id = Column(UUID, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    key_hash = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=get_current_utc_time)
+    last_used = Column(DateTime, default=get_current_utc_time)
+    is_active = Column(Boolean, default=True, nullable=False)
+    
+    user = relationship("User", back_populates="api_key")
+
+
 class App(Base):
     __tablename__ = "apps"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
-    owner_id = Column(UUID, ForeignKey("users.id"), nullable=False, index=True)
+    id = Column(UUID, primary_key=True, default=lambda: uuid4())
     name = Column(String, nullable=False, index=True)
-    description = Column(String)
-    metadata_ = Column('metadata', JSON, default=dict)
-    is_active = Column(Boolean, default=True, index=True)
+    owner_id = Column(UUID, ForeignKey("users.id"), nullable=False, index=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
     created_at = Column(DateTime, default=get_current_utc_time, index=True)
     updated_at = Column(DateTime,
                         default=get_current_utc_time,
@@ -71,20 +99,9 @@ class App(Base):
     )
 
 
-class Config(Base):
-    __tablename__ = "configs"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
-    key = Column(String, unique=True, nullable=False, index=True)
-    value = Column(JSON, nullable=False)
-    created_at = Column(DateTime, default=get_current_utc_time)
-    updated_at = Column(DateTime,
-                        default=get_current_utc_time,
-                        onupdate=get_current_utc_time)
-
-
 class Memory(Base):
     __tablename__ = "memories"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
+    id = Column(UUID, primary_key=True, default=lambda: uuid4())
     user_id = Column(UUID, ForeignKey("users.id"), nullable=False, index=True)
     app_id = Column(UUID, ForeignKey("apps.id"), nullable=False, index=True)
     content = Column(String, nullable=False)
@@ -111,133 +128,31 @@ class Memory(Base):
 
 class Category(Base):
     __tablename__ = "categories"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
+    id = Column(UUID, primary_key=True, default=lambda: uuid4())
     name = Column(String, unique=True, nullable=False, index=True)
     description = Column(String)
-    created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC), index=True)
-    updated_at = Column(DateTime,
-                        default=get_current_utc_time,
-                        onupdate=get_current_utc_time)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
 
     memories = relationship("Memory", secondary="memory_categories", back_populates="categories")
 
-memory_categories = Table(
-    "memory_categories", Base.metadata,
-    Column("memory_id", UUID, ForeignKey("memories.id"), primary_key=True, index=True),
-    Column("category_id", UUID, ForeignKey("categories.id"), primary_key=True, index=True),
-    Index('idx_memory_category', 'memory_id', 'category_id')
-)
 
-
-class AccessControl(Base):
-    __tablename__ = "access_controls"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
-    subject_type = Column(String, nullable=False, index=True)
-    subject_id = Column(UUID, nullable=True, index=True)
-    object_type = Column(String, nullable=False, index=True)
-    object_id = Column(UUID, nullable=True, index=True)
-    effect = Column(String, nullable=False, index=True)
-    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+class MemoryCategory(Base):
+    __tablename__ = "memory_categories"
+    memory_id = Column(UUID, ForeignKey("memories.id"), primary_key=True, index=True)
+    category_id = Column(UUID, ForeignKey("categories.id"), primary_key=True, index=True)
+    assigned_at = Column(DateTime, default=get_current_utc_time)
 
     __table_args__ = (
-        Index('idx_access_subject', 'subject_type', 'subject_id'),
-        Index('idx_access_object', 'object_type', 'object_id'),
+        Index('idx_memory_category', 'memory_id', 'category_id'),
     )
 
 
-class ArchivePolicy(Base):
-    __tablename__ = "archive_policies"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
-    criteria_type = Column(String, nullable=False, index=True)
-    criteria_id = Column(UUID, nullable=True, index=True)
-    days_to_archive = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=get_current_utc_time, index=True)
-
-    __table_args__ = (
-        Index('idx_policy_criteria', 'criteria_type', 'criteria_id'),
-    )
-
-
-class MemoryStatusHistory(Base):
-    __tablename__ = "memory_status_history"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
-    memory_id = Column(UUID, ForeignKey("memories.id"), nullable=False, index=True)
-    changed_by = Column(UUID, ForeignKey("users.id"), nullable=False, index=True)
-    old_state = Column(Enum(MemoryState), nullable=False, index=True)
-    new_state = Column(Enum(MemoryState), nullable=False, index=True)
-    changed_at = Column(DateTime, default=get_current_utc_time, index=True)
-
-    __table_args__ = (
-        Index('idx_history_memory_state', 'memory_id', 'new_state'),
-        Index('idx_history_user_time', 'changed_by', 'changed_at'),
-    )
-
-
-class MemoryAccessLog(Base):
-    __tablename__ = "memory_access_logs"
-    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
-    memory_id = Column(UUID, ForeignKey("memories.id"), nullable=False, index=True)
-    app_id = Column(UUID, ForeignKey("apps.id"), nullable=False, index=True)
-    accessed_at = Column(DateTime, default=get_current_utc_time, index=True)
-    access_type = Column(String, nullable=False, index=True)
-    metadata_ = Column('metadata', JSON, default=dict)
-
-    __table_args__ = (
-        Index('idx_access_memory_time', 'memory_id', 'accessed_at'),
-        Index('idx_access_app_time', 'app_id', 'accessed_at'),
-    )
-
-def categorize_memory(memory: Memory, db: Session) -> None:
-    """Categorize a memory using OpenAI and store the categories in the database."""
-    try:
-        # Get categories from OpenAI
-        categories = get_categories_for_memory(memory.content)
-
-        # Get or create categories in the database
-        for category_name in categories:
-            category = db.query(Category).filter(Category.name == category_name).first()
-            if not category:
-                category = Category(
-                    name=category_name,
-                    description=f"Automatically created category for {category_name}"
-                )
-                db.add(category)
-                db.flush()  # Flush to get the category ID
-
-            # Check if the memory-category association already exists
-            existing = db.execute(
-                memory_categories.select().where(
-                    (memory_categories.c.memory_id == memory.id) &
-                    (memory_categories.c.category_id == category.id)
-                )
-            ).first()
-
-            if not existing:
-                # Create the association
-                db.execute(
-                    memory_categories.insert().values(
-                        memory_id=memory.id,
-                        category_id=category.id
-                    )
-                )
-
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        print(f"Error categorizing memory: {e}")
-
-
-@event.listens_for(Memory, 'after_insert')
-def after_memory_insert(mapper, connection, target):
-    """Trigger categorization after a memory is inserted."""
-    db = Session(bind=connection)
-    categorize_memory(target, db)
-    db.close()
-
-
-@event.listens_for(Memory, 'after_update')
-def after_memory_update(mapper, connection, target):
-    """Trigger categorization after a memory is updated."""
-    db = Session(bind=connection)
-    categorize_memory(target, db)
-    db.close()
+class Config(Base):
+    __tablename__ = "configs"
+    id = Column(UUID, primary_key=True, default=lambda: uuid4())
+    key = Column(String, unique=True, nullable=False, index=True)
+    value = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=get_current_utc_time)
+    updated_at = Column(DateTime,
+                        default=get_current_utc_time,
+                        onupdate=get_current_utc_time)

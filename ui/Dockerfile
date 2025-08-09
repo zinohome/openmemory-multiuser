@@ -35,12 +35,10 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-COPY --from=builder /app/public ./public
+# Copy the standalone output correctly with proper ownership
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-COPY --chown=nextjs:nodejs entrypoint.sh /home/nextjs/entrypoint.sh
-RUN chmod +x /home/nextjs/entrypoint.sh
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 USER nextjs
 
@@ -48,5 +46,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-ENTRYPOINT ["/home/nextjs/entrypoint.sh"]
-CMD ["node", "server.js"]
+ENTRYPOINT ["node", "server.js"]
