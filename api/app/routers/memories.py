@@ -1,6 +1,6 @@
 # api/app/routers/memories.py
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
 
@@ -76,7 +76,7 @@ async def create_memory(
             app_id=app.id,
             content=memory_data.text,
             metadata_=memory_data.metadata,
-            created_at=datetime.now(datetime.UTC)
+            created_at=datetime.now(timezone.utc)
         )
         db.add(memory)
         db.commit()
@@ -221,7 +221,7 @@ async def delete_memory(
     
     # Soft delete
     memory.state = MemoryState.deleted
-    memory.deleted_at = datetime.now(datetime.UTC)
+    memory.deleted_at = datetime.now(timezone.utc)
     db.commit()
     
     # Also delete from vector store

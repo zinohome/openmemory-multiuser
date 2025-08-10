@@ -1,5 +1,5 @@
 # api/app/routers/apps.py
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
 
@@ -76,7 +76,7 @@ async def create_app(
         id=uuid4(),
         name=app_data.name,
         owner_id=current_user.id,
-        created_at=datetime.now(datetime.UTC)
+        created_at=datetime.now(timezone.utc)
     )
     db.add(app)
     db.commit()
@@ -110,7 +110,7 @@ async def delete_app(
     memories = db.query(Memory).filter(Memory.app_id == app.id).all()
     for memory in memories:
         memory.state = MemoryState.deleted
-        memory.deleted_at = datetime.now(datetime.UTC)
+        memory.deleted_at = datetime.now(timezone.utc)
     
     # Deactivate the app
     app.is_active = False

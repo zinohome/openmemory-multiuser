@@ -1,7 +1,7 @@
 # api/app/mcp_server.py
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -130,7 +130,7 @@ def setup_mcp_server(app: FastAPI):
                 user_id=user.id,
                 app_id=app.id,
                 content=text,
-                created_at=datetime.now(datetime.UTC)
+                created_at=datetime.now(timezone.utc)
             )
             db.add(memory)
             db.commit()
@@ -256,7 +256,7 @@ def setup_mcp_server(app: FastAPI):
             
             for memory in memories:
                 memory.state = "deleted"
-                memory.deleted_at = datetime.now(datetime.UTC)
+                memory.deleted_at = datetime.now(timezone.utc)
             
             db.commit()
             

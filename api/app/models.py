@@ -2,7 +2,7 @@
 import hashlib
 import secrets
 import string
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from typing import Optional
 from uuid import uuid4
@@ -27,7 +27,7 @@ from app.database import Base
 
 
 def get_current_utc_time():
-    return datetime.now(datetime.UTC)
+    return datetime.now(timezone.utc)
 
 
 def generate_api_key() -> str:

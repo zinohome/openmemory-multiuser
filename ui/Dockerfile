@@ -24,7 +24,15 @@ COPY --from=deps /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY . .
 
 RUN cp next.config.dev.mjs next.config.mjs
-RUN cp .env.example .env
+
+# Set build-time environment variables
+ARG NEXT_PUBLIC_API_URL=http://localhost:8765
+ARG NEXT_PUBLIC_USER_ID=research-lab
+
+# Create .env file with actual values
+RUN echo "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}" > .env && \
+    echo "NEXT_PUBLIC_USER_ID=${NEXT_PUBLIC_USER_ID}" >> .env
+
 RUN pnpm build
 
 FROM base AS runner

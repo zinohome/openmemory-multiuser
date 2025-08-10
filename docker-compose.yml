@@ -48,8 +48,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-    volumes:
-      - ./api:/app
+    # volumes:
+    #  - ./api:/app
     command: >
       sh -c "
         echo 'Waiting for database...' &&
@@ -74,11 +74,10 @@ services:
       - "3000:3000"
     depends_on:
       - openmemory-mcp
-    volumes:
-      - ./ui:/app
-      - /app/node_modules
-      - /app/.next
-
+    # volumes:
+    #   - ./ui:/app
+    #   - /app/node_modules
+    #   - /app/.next
 volumes:
   postgres_data:
   qdrant_data:

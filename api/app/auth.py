@@ -1,5 +1,5 @@
 # api/app/auth.py
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 from uuid import uuid4
 
@@ -57,8 +57,8 @@ def get_current_user(
         return None
     
     # Update last used timestamp
-    api_key_obj.last_used = datetime.now(datetime.UTC)
-    api_key_obj.user.last_active = datetime.now(datetime.UTC)
+    api_key_obj.last_used = datetime.now(timezone.utc)
+    api_key_obj.user.last_active = datetime.now(timezone.utc)
     db.commit()
     
     return api_key_obj.user
@@ -158,8 +158,8 @@ def validate_api_key(api_key: str, db: Session) -> Optional[User]:
         return None
     
     # Update last used
-    api_key_obj.last_used = datetime.now(datetime.UTC)
-    api_key_obj.user.last_active = datetime.now(datetime.UTC)
+    api_key_obj.last_used = datetime.now(timezone.utc)
+    api_key_obj.user.last_active = datetime.now(timezone.utc)
     db.commit()
     
     return api_key_obj.user
