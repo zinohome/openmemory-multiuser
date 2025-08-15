@@ -90,3 +90,7 @@ docker compose restart
 
 **SSH Access**: Available via SSH MCP tool
 **Python MCP Server**: Located at `C:/Users/clbhu/openmemory-mcp/openmemory-mcp.py`
+
+## 📚 Additional Documentation
+
+- **Python MCP Server**: See `docs/PYTHON_MCP_SERVER.md` for complete documentation on the temporary Python MCP bridge and roadmap for proper server-side implementation.
