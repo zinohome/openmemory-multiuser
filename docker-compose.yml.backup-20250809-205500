@@ -48,6 +48,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+    volumes:
+      - ./api:/app
     command: >
       sh -c "
         echo 'Waiting for database...' &&
@@ -64,19 +66,18 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
-      args:
-        # CRITICAL: Pass build args here!
-        NEXT_PUBLIC_API_URL: http://mem-lab.duckdns.org:8765
-        NEXT_PUBLIC_USER_ID: research-lab
     container_name: openmemory-ui
     environment:
-      # Runtime environment variables (not used by Next.js client-side)
-      NEXT_PUBLIC_API_URL: http://mem-lab.duckdns.org:8765
-      NEXT_PUBLIC_USER_ID: research-lab
+      - NEXT_PUBLIC_API_URL=http://localhost:8765
+      - NEXT_PUBLIC_USER_ID=research-lab
     ports:
       - "3000:3000"
     depends_on:
       - openmemory-mcp
+    volumes:
+      - ./ui:/app
+      - /app/node_modules
+      - /app/.next
 
 volumes:
   postgres_data:

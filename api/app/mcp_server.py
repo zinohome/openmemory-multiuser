@@ -1,8 +1,9 @@
 # api/app/mcp_server.py
 import json
 import logging
+import asyncio
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, AsyncGenerator, Dict, Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -19,12 +20,8 @@ from app.utils.memory import get_memory_client
 logger = logging.getLogger(__name__)
 
 
-class MCPMessage(BaseModel):
-    message: dict
-
-
 def setup_mcp_server(app: FastAPI):
-    """Setup MCP (Model Context Protocol) server endpoints"""
+    """Setup MCP (Model Context Protocol) server endpoints with proper JSON-RPC"""
     
     @app.get("/mcp/{client}/sse")
     async def mcp_sse_endpoint(
@@ -32,7 +29,7 @@ def setup_mcp_server(app: FastAPI):
         request: Request,
         api_key: Optional[str] = Query(None, alias="key")
     ):
-        """SSE endpoint for MCP clients with API key authentication"""
+        """SSE endpoint for MCP clients with proper JSON-RPC protocol"""
         
         # Get API key from query parameter or header
         if not api_key:
@@ -48,234 +45,303 @@ def setup_mcp_server(app: FastAPI):
             if not user:
                 raise HTTPException(status_code=401, detail="Invalid API key")
             user_id = user.user_id
+            app_id = DEFAULT_APP_ID
         finally:
             db.close()
         
         logger.info(f"MCP SSE connection established for user: {user_id}, client: {client}")
         
-        async def event_generator():
-            # Send initial connection message
-            yield f"data: {json.dumps({'type': 'connection', 'status': 'connected', 'user_id': user_id})}\n\n"
+        async def json_rpc_generator() -> AsyncGenerator[str, None]:
+            """Generate JSON-RPC responses over SSE"""
             
-            # Keep connection alive
+            # Send initial capabilities response
+            init_response = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": "2025-06-18",
+                    "serverInfo": {
+                        "name": "openmemory-mcp-server",
+                        "version": "1.0.0"
+                    },
+                    "capabilities": {
+                        "tools": {}
+                    }
+                }
+            }
+            yield f"data: {json.dumps(init_response)}\n\n"
+            
+            # Keep connection alive and handle incoming requests
+            request_id = 2
             while True:
-                import asyncio
-                await asyncio.sleep(30)
-                yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+                try:
+                    # Send heartbeat every 30 seconds
+                    await asyncio.sleep(30)
+                    heartbeat = {
+                        "jsonrpc": "2.0",
+                        "method": "heartbeat",
+                        "params": {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "user_id": user_id
+                        }
+                    }
+                    yield f"data: {json.dumps(heartbeat)}\n\n"
+                    
+                except asyncio.CancelledError:
+                    logger.info(f"MCP SSE connection closed for user: {user_id}")
+                    break
+                except Exception as e:
+                    logger.error(f"Error in MCP SSE generator: {e}")
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {
+                            "code": -32603,
+                            "message": "Internal error",
+                            "data": str(e)
+                        }
+                    }
+                    yield f"data: {json.dumps(error_response)}\n\n"
+                    request_id += 1
         
         return StreamingResponse(
-            event_generator(),
+            json_rpc_generator(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
             }
         )
     
-    @app.post("/mcp/messages/")
-    async def handle_mcp_message(message: MCPMessage):
-        """Handle incoming MCP messages"""
-        msg = message.message
+    @app.post("/mcp/{client}/rpc")
+    async def mcp_rpc_endpoint(
+        client: str,
+        request: Request,
+        api_key: Optional[str] = Query(None, alias="key")
+    ):
+        """Handle JSON-RPC requests for MCP protocol"""
         
-        if msg.get("method") == "add_memories":
-            return await handle_add_memories(msg.get("params", {}))
-        elif msg.get("method") == "search_memory":
-            return await handle_search_memory(msg.get("params", {}))
-        elif msg.get("method") == "list_memories":
-            return await handle_list_memories(msg.get("params", {}))
-        elif msg.get("method") == "delete_all_memories":
-            return await handle_delete_all_memories(msg.get("params", {}))
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown method: {msg.get('method')}")
-    
-    async def handle_add_memories(params: dict):
-        """Handle add_memories request from MCP client"""
-        text = params.get("text", "")
-        user_id = params.get("user_id", "default_user")
+        # Validate API key
+        if not api_key:
+            api_key = request.headers.get("X-API-Key")
         
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is required")
-        
-        db = SessionLocal()
-        api_key_returned = None
-        
-        try:
-            # Get or create user with API key
-            user, new_api_key = get_or_create_user_with_api_key(user_id, db)
-            
-            # If new user, store the API key to return
-            if new_api_key:
-                api_key_returned = new_api_key
-                logger.info(f"Created new user {user_id} with API key")
-            
-            # Get or create default app
-            app = db.query(App).filter(
-                App.name == DEFAULT_APP_ID,
-                App.owner_id == user.id
-            ).first()
-            
-            if not app:
-                app = App(
-                    id=uuid4(),
-                    name=DEFAULT_APP_ID,
-                    owner_id=user.id
-                )
-                db.add(app)
-                db.flush()
-            
-            # Create memory in SQL database
-            memory = Memory(
-                id=uuid4(),
-                user_id=user.id,
-                app_id=app.id,
-                content=text,
-                created_at=datetime.now(timezone.utc)
-            )
-            db.add(memory)
-            db.commit()
-            
-            # Also add to vector store (Qdrant) with proper metadata
-            try:
-                memory_client = get_memory_client()
-                if memory_client:
-                    # Add memory with infer=False to prevent categorization
-                    memory_client.add(
-                        messages=text,
-                        user_id=user_id,
-                        metadata={
-                            "app_id": str(app.id),
-                            "memory_id": str(memory.id),
-                            "created_at": memory.created_at.isoformat()
-                        },
-                        infer=False
-                    )
-                    logger.info(f"Added memory to Qdrant for user {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to add memory to Qdrant: {e}")
-            
-            response = {
-                "success": True,
-                "memory_id": str(memory.id),
-                "message": "Memory added successfully"
-            }
-            
-            # Include API key if this was a new user
-            if api_key_returned:
-                response["api_key"] = api_key_returned
-                response["message"] = f"New user created! Your API key is: {api_key_returned}\nPlease save this key - it will not be shown again."
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error adding memory: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            db.close()
-    
-    async def handle_search_memory(params: dict):
-        """Handle search_memory request from MCP client"""
-        query = params.get("query", "")
-        user_id = params.get("user_id", "default_user")
-        limit = params.get("limit", 10)
-        
-        try:
-            memory_client = get_memory_client()
-            if not memory_client:
-                return {"results": [], "message": "Memory client not initialized"}
-            
-            # Search memories with user filtering
-            results = memory_client.search(
-                query=query,
-                user_id=user_id,
-                limit=limit
-            )
-            
+        if not api_key:
             return {
-                "results": results.get("results", []),
-                "total": len(results.get("results", []))
-            }
-            
-        except Exception as e:
-            logger.error(f"Error searching memories: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    async def handle_list_memories(params: dict):
-        """Handle list_memories request from MCP client"""
-        user_id = params.get("user_id", "default_user")
-        
-        db = SessionLocal()
-        try:
-            # Get user
-            user = db.query(User).filter(User.user_id == user_id).first()
-            if not user:
-                return {"memories": [], "total": 0}
-            
-            # Get all memories for user
-            memories = db.query(Memory).filter(
-                Memory.user_id == user.id,
-                Memory.state == "active"
-            ).order_by(Memory.created_at.desc()).all()
-            
-            memory_list = [
-                {
-                    "id": str(memory.id),
-                    "content": memory.content,
-                    "created_at": memory.created_at.isoformat()
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32700,
+                    "message": "API key required"
                 }
-                for memory in memories
-            ]
-            
-            return {
-                "memories": memory_list,
-                "total": len(memory_list)
             }
-            
-        except Exception as e:
-            logger.error(f"Error listing memories: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            db.close()
-    
-    async def handle_delete_all_memories(params: dict):
-        """Handle delete_all_memories request from MCP client"""
-        user_id = params.get("user_id", "default_user")
         
         db = SessionLocal()
         try:
-            # Get user
-            user = db.query(User).filter(User.user_id == user_id).first()
+            user = validate_api_key(api_key, db)
             if not user:
-                return {"success": False, "message": "User not found"}
-            
-            # Soft delete all memories
-            memories = db.query(Memory).filter(
-                Memory.user_id == user.id,
-                Memory.state == "active"
-            ).all()
-            
-            for memory in memories:
-                memory.state = "deleted"
-                memory.deleted_at = datetime.now(timezone.utc)
-            
-            db.commit()
-            
-            # Also delete from vector store
-            try:
-                memory_client = get_memory_client()
-                if memory_client:
-                    memory_client.delete_all(user_id=user_id)
-            except Exception as e:
-                logger.error(f"Failed to delete from Qdrant: {e}")
-            
-            return {
-                "success": True,
-                "deleted_count": len(memories),
-                "message": f"Deleted {len(memories)} memories"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error deleting memories: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+                return {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32700,
+                        "message": "Invalid API key"
+                    }
+                }
+            user_id = user.user_id
+            app_id = DEFAULT_APP_ID
         finally:
             db.close()
+        
+        # Parse JSON-RPC request
+        try:
+            rpc_request = await request.json()
+        except Exception as e:
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32700,
+                    "message": "Parse error",
+                    "data": str(e)
+                }
+            }
+        
+        method = rpc_request.get("method")
+        params = rpc_request.get("params", {})
+        request_id = rpc_request.get("id")
+        
+        # Handle different MCP methods
+        if method == "initialize":
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2025-06-18",
+                    "serverInfo": {
+                        "name": "openmemory-mcp-server",
+                        "version": "1.0.0"
+                    },
+                    "capabilities": {
+                        "tools": {}
+                    }
+                }
+            }
+        
+        elif method == "tools/list":
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "add_memory",
+                            "description": "Add a new memory",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "text": {
+                                        "type": "string",
+                                        "description": "The memory to store"
+                                    }
+                                },
+                                "required": ["text"]
+                            }
+                        },
+                        {
+                            "name": "search_memories",
+                            "description": "Search through stored memories",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                        "description": "Search query"
+                                    }
+                                },
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "list_memories",
+                            "description": "List all stored memories",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {}
+                            }
+                        }
+                    ]
+                }
+            }
+        
+        elif method == "tools/call":
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+            
+            db = SessionLocal()
+            try:
+                if tool_name == "add_memory":
+                    # Add memory to database
+                    memory_client = get_memory_client(user_id, db)
+                    memory_text = tool_args.get("text", "")
+                    
+                    result = memory_client.add(
+                        memory_text,
+                        user_id=user_id,
+                        metadata={"app_id": app_id}
+                    )
+                    
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [{
+                                "type": "text",
+                                "text": f"Memory stored successfully with ID: {result.get('id', 'unknown')}"
+                            }]
+                        }
+                    }
+                
+                elif tool_name == "search_memories":
+                    query = tool_args.get("query", "")
+                    memory_client = get_memory_client(user_id, db)
+                    
+                    results = memory_client.search(query, limit=10)
+                    
+                    if results:
+                        memories_text = "\n\n".join([
+                            f"Memory {i+1}:\n{mem.get('memory', '')}"
+                            for i, mem in enumerate(results)
+                        ])
+                        response_text = f"Found {len(results)} memories:\n\n{memories_text}"
+                    else:
+                        response_text = "No memories found matching your query."
+                    
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [{
+                                "type": "text",
+                                "text": response_text
+                            }]
+                        }
+                    }
+                
+                elif tool_name == "list_memories":
+                    memory_client = get_memory_client(user_id, db)
+                    memories = memory_client.get_all(user_id=user_id)
+                    
+                    if memories:
+                        memories_text = "\n\n".join([
+                            f"Memory {i+1} (created {mem.get('created_at', 'unknown')}):\n{mem.get('memory', '')}"
+                            for i, mem in enumerate(memories[:20])  # Limit to 20 for response size
+                        ])
+                        response_text = f"You have {len(memories)} memories. Showing first 20:\n\n{memories_text}"
+                    else:
+                        response_text = "No memories stored yet."
+                    
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [{
+                                "type": "text",
+                                "text": response_text
+                            }]
+                        }
+                    }
+                
+                else:
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {
+                            "code": -32601,
+                            "message": f"Unknown tool: {tool_name}"
+                        }
+                    }
+            
+            except Exception as e:
+                logger.error(f"Error executing tool {tool_name}: {e}")
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32603,
+                        "message": "Internal error",
+                        "data": str(e)
+                    }
+                }
+            finally:
+                db.close()
+        
+        else:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
+            }

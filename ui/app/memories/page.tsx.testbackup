@@ -1,0 +1,100 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+export default function MemoriesPage() {
+  const [userInfo, setUserInfo] = useState<any>(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    // Only access browser storage on client side
+    if (typeof window === 'undefined') return;
+
+    // Check if user is logged in
+    const apiKey = sessionStorage.getItem('api_key') || localStorage.getItem('api_key');
+    const userId = sessionStorage.getItem('user_id') || localStorage.getItem('user_id');
+    const userName = sessionStorage.getItem('user_name') || localStorage.getItem('user_name');
+
+    // Set debug info
+    setDebugInfo({
+      sessionStorage: {
+        api_key: sessionStorage.getItem('api_key') ? 'present' : 'missing',
+        user_id: sessionStorage.getItem('user_id'),
+        user_name: sessionStorage.getItem('user_name')
+      },
+      localStorage: {
+        api_key: localStorage.getItem('api_key') ? 'present' : 'missing',
+        user_id: localStorage.getItem('user_id'),
+        user_name: localStorage.getItem('user_name')
+      },
+      pathname: window.location.pathname
+    });
+
+    if (!apiKey) {
+      console.log('No API key found, redirecting to login');
+      router.push('/login');
+      return;
+    }
+
+    setUserInfo({
+      apiKey: apiKey.substring(0, 10) + '...',
+      userId,
+      userName
+    });
+
+    console.log('Memories page loaded with user:', { userId, userName });
+  }, [router]);
+
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.clear();
+      localStorage.clear();
+    }
+    router.push('/login');
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white p-8">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold mb-6">OpenMemory - Memories</h1>
+        
+        {userInfo ? (
+          <div className="bg-gray-800 rounded-lg p-6 mb-6">
+            <h2 className="text-xl font-semibold mb-4">Login Successful! 🎉</h2>
+            <div className="space-y-2">
+              <p><strong>User ID:</strong> {userInfo.userId}</p>
+              <p><strong>User Name:</strong> {userInfo.userName}</p>
+              <p><strong>API Key:</strong> {userInfo.apiKey}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 rounded"
+            >
+              Logout
+            </button>
+          </div>
+        ) : (
+          <div className="bg-gray-800 rounded-lg p-6">
+            <p>Loading user information...</p>
+          </div>
+        )}
+
+        {debugInfo && (
+          <div className="bg-gray-800 rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">Debug Information</h3>
+            <pre className="bg-gray-900 p-4 rounded text-xs overflow-auto">
+              {JSON.stringify(debugInfo, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        <div className="mt-6 text-sm text-gray-400">
+          <p>This is a simplified memories page for testing.</p>
+          <p>If you can see this page, the login and navigation are working!</p>
+        </div>
+      </div>
+    </div>
+  );
+}

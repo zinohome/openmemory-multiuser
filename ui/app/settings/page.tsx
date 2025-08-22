@@ -1,165 +1,231 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from "react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { SaveIcon, RotateCcw } from "lucide-react"
-import { FormView } from "@/components/form-view"
-import { JsonEditor } from "@/components/json-editor"
-import { useConfig } from "@/hooks/useConfig"
-import { useSelector } from "react-redux"
-import { RootState } from "@/store/store"
-import { useToast } from "@/components/ui/use-toast"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { 
+  Settings,
+  User,
+  Key,
+  Database,
+  Bell,
+  Shield,
+  Info,
+  Copy,
+  Check,
+  Eye,
+  EyeOff
+} from 'lucide-react';
 
 export default function SettingsPage() {
-  const { toast } = useToast()
-  const configState = useSelector((state: RootState) => state.config)
-  const [settings, setSettings] = useState({
-    openmemory: configState.openmemory || {
-      custom_instructions: null
-    },
-    mem0: configState.mem0
-  })
-  const [viewMode, setViewMode] = useState<"form" | "json">("form")
-  const { fetchConfig, saveConfig, resetConfig, isLoading, error } = useConfig()
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
-    // Load config from API on component mount
-    const loadConfig = async () => {
-      try {
-        await fetchConfig()
-      } catch (error) {
-        toast({
-          title: "Error",
-          description: "Failed to load configuration",
-          variant: "destructive",
-        })
-      }
-    }
+    checkAuth();
+  }, []);
+
+  const checkAuth = () => {
+    if (typeof window === 'undefined') return;
     
-    loadConfig()
-  }, [])
+    const apiKey = sessionStorage.getItem('api_key') || localStorage.getItem('api_key');
+    const userId = sessionStorage.getItem('user_id') || localStorage.getItem('user_id');
+    const userName = sessionStorage.getItem('user_name') || localStorage.getItem('user_name');
 
-  // Update local state when redux state changes
-  useEffect(() => {
-    setSettings(prev => ({
-      ...prev,
-      openmemory: configState.openmemory || { custom_instructions: null },
-      mem0: configState.mem0
-    }))
-  }, [configState.openmemory, configState.mem0])
-
-  const handleSave = async () => {
-    try {
-      await saveConfig({ 
-        openmemory: settings.openmemory,
-        mem0: settings.mem0 
-      })
-      toast({
-        title: "Settings saved",
-        description: "Your configuration has been updated successfully.",
-      })
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to save configuration",
-        variant: "destructive",
-      })
+    if (!apiKey) {
+      router.push('/login');
+      return;
     }
-  }
 
-  const handleReset = async () => {
-    try {
-      await resetConfig()
-      toast({
-        title: "Settings reset",
-        description: "Configuration has been reset to default values.",
-      })
-      await fetchConfig()
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to reset configuration",
-        variant: "destructive",
-      })
+    setCurrentUser({ userId, userName, apiKey });
+  };
+
+  const handleCopyApiKey = () => {
+    if (currentUser?.apiKey) {
+      navigator.clipboard.writeText(currentUser.apiKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-  }
+  };
+
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.clear();
+      localStorage.clear();
+    }
+    router.push('/login');
+  };
 
   return (
-    <div className="text-white py-6">
-      <div className="container mx-auto py-10 max-w-4xl">
-        <div className="flex justify-between items-center mb-8">
-          <div className="animate-fade-slide-down">
-            <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-            <p className="text-muted-foreground mt-1">Manage your OpenMemory and Mem0 configuration</p>
+    <div className="min-h-screen bg-gray-900">
+      {/* Header */}
+      <header className="bg-gray-800 border-b border-gray-700">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center space-x-4">
+            <Settings className="h-8 w-8 text-blue-400" />
+            <h1 className="text-2xl font-bold text-white">Settings</h1>
           </div>
-          <div className="flex space-x-2">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" className="border-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-50 animate-fade-slide-down" disabled={isLoading}>
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Reset Defaults
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Reset Configuration?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will reset all settings to the system defaults. Any custom configuration will be lost.
-                    API keys will be set to use environment variables.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleReset} className="bg-red-600 hover:bg-red-700">
-                    Reset
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            
-            <Button onClick={handleSave} className="bg-primary hover:bg-primary/90 animate-fade-slide-down" disabled={isLoading}>
-              <SaveIcon className="mr-2 h-4 w-4" />
-              {isLoading ? "Saving..." : "Save Configuration"}
-            </Button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8 max-w-4xl">
+        {/* User Profile Section */}
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-6">
+          <div className="flex items-center space-x-3 mb-4">
+            <User className="h-5 w-5 text-blue-400" />
+            <h2 className="text-lg font-semibold text-white">User Profile</h2>
+          </div>
+          
+          {currentUser && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-gray-400">User ID</label>
+                <div className="mt-1 px-3 py-2 bg-gray-700 rounded-lg text-white">
+                  {currentUser.userId}
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-sm text-gray-400">Name</label>
+                <div className="mt-1 px-3 py-2 bg-gray-700 rounded-lg text-white">
+                  {currentUser.userName}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* API Configuration Section */}
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-6">
+          <div className="flex items-center space-x-3 mb-4">
+            <Key className="h-5 w-5 text-green-400" />
+            <h2 className="text-lg font-semibold text-white">API Configuration</h2>
+          </div>
+          
+          {currentUser && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-gray-400">API Key</label>
+                <div className="mt-1 flex items-center space-x-2">
+                  <div className="flex-1 px-3 py-2 bg-gray-700 rounded-lg text-white font-mono text-sm">
+                    {showApiKey ? currentUser.apiKey : '••••••••••••••••••••'}
+                  </div>
+                  <button
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="p-2 text-gray-400 hover:text-white transition-colors"
+                    title={showApiKey ? 'Hide' : 'Show'}
+                  >
+                    {showApiKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                  <button
+                    onClick={handleCopyApiKey}
+                    className="p-2 text-gray-400 hover:text-white transition-colors"
+                    title="Copy"
+                  >
+                    {copied ? <Check className="h-5 w-5 text-green-400" /> : <Copy className="h-5 w-5" />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Keep your API key secure. Do not share it publicly.
+                </p>
+              </div>
+              
+              <div>
+                <label className="text-sm text-gray-400">API Endpoint</label>
+                <div className="mt-1 px-3 py-2 bg-gray-700 rounded-lg text-white font-mono text-sm">
+                  http://mem-lab.duckdns.org:8765
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* System Information Section */}
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-6">
+          <div className="flex items-center space-x-3 mb-4">
+            <Info className="h-5 w-5 text-purple-400" />
+            <h2 className="text-lg font-semibold text-white">System Information</h2>
+          </div>
+          
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Version</span>
+              <span className="text-white">OpenMemory v2.0</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">API Status</span>
+              <span className="text-green-400">Connected</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Database</span>
+              <span className="text-white">PostgreSQL + Qdrant</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Embedding Model</span>
+              <span className="text-white">mxbai-embed-large</span>
+            </div>
           </div>
         </div>
 
-        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "form" | "json")} className="w-full animate-fade-slide-down delay-1">
-          <TabsList className="grid w-full grid-cols-2 mb-8">
-            <TabsTrigger value="form">Form View</TabsTrigger>
-            <TabsTrigger value="json">JSON Editor</TabsTrigger>
-          </TabsList>
+        {/* Preferences Section */}
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-6">
+          <div className="flex items-center space-x-3 mb-4">
+            <Bell className="h-5 w-5 text-yellow-400" />
+            <h2 className="text-lg font-semibold text-white">Preferences</h2>
+          </div>
+          
+          <div className="space-y-4">
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                defaultChecked
+              />
+              <span className="text-white">Enable notifications</span>
+            </label>
+            
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                defaultChecked
+              />
+              <span className="text-white">Auto-refresh dashboard</span>
+            </label>
+            
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+              />
+              <span className="text-white">Dark mode only</span>
+            </label>
+          </div>
+        </div>
 
-          <TabsContent value="form">
-            <FormView settings={settings} onChange={setSettings} />
-          </TabsContent>
-
-          <TabsContent value="json">
-            <Card>
-              <CardHeader>
-                <CardTitle>JSON Configuration</CardTitle>
-                <CardDescription>Edit the entire configuration directly as JSON</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <JsonEditor value={settings} onChange={setSettings} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
+        {/* Actions Section */}
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+          <div className="flex items-center space-x-3 mb-4">
+            <Shield className="h-5 w-5 text-red-400" />
+            <h2 className="text-lg font-semibold text-white">Account Actions</h2>
+          </div>
+          
+          <div className="space-y-3">
+            <button
+              onClick={handleLogout}
+              className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+            >
+              Logout
+            </button>
+            
+            <p className="text-xs text-gray-500 text-center">
+              Logging out will clear your session. You'll need your API key to log back in.
+            </p>
+          </div>
+        </div>
+      </main>
     </div>
-  )
+  );
 }

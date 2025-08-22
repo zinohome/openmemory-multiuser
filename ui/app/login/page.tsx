@@ -1,23 +1,28 @@
-// ui/app/login/page.tsx
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Brain, Key, AlertCircle } from 'lucide-react';
+import { Brain, Key, AlertCircle, CheckCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess(false);
     setLoading(true);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/login`, {
+      // Use the external API URL directly
+      const apiUrl = 'http://mem-lab.duckdns.org:8765';
+      console.log('Attempting login to:', apiUrl);
+      
+      const response = await fetch(`${apiUrl}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -26,24 +31,66 @@ export default function LoginPage() {
       });
 
       const data = await response.json();
+      console.log('Login response:', data);
 
       if (response.ok && data.success) {
         // Store API key in session storage
         sessionStorage.setItem('api_key', apiKey);
         sessionStorage.setItem('user_id', data.user_id);
-        sessionStorage.setItem('user_name', data.name);
+        sessionStorage.setItem('user_name', data.name || data.user_id);
         
-        // Redirect to memories page
-        router.push('/memories');
+        // Also store in localStorage as backup
+        localStorage.setItem('api_key', apiKey);
+        localStorage.setItem('user_id', data.user_id);
+        localStorage.setItem('user_name', data.name || data.user_id);
+        
+        console.log('Login successful, stored credentials');
+        console.log('Stored user_id:', data.user_id);
+        console.log('Stored user_name:', data.name);
+        
+        // Show success message
+        setSuccess(true);
+        setError('');
+        
+        // Try multiple navigation methods
+        setTimeout(() => {
+          console.log('Attempting navigation to /memories');
+          
+          // Method 1: Next.js router
+          router.push('/memories');
+          
+          // Method 2: Fallback to window.location after a delay
+          setTimeout(() => {
+            // If we're still on this page, force navigation
+            if (window.location.pathname === '/login') {
+              console.log('Router.push failed, using window.location');
+              window.location.href = '/memories';
+            }
+          }, 1000);
+        }, 500);
+        
       } else {
         setError(data.detail || 'Invalid API key');
+        console.error('Login failed:', data);
       }
     } catch (err) {
-      setError('Failed to connect to server');
+      setError('Failed to connect to server. Please check your connection.');
       console.error('Login error:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Add a debug function to test navigation
+  const testNavigation = () => {
+    console.log('Testing navigation...');
+    router.push('/memories');
+    setTimeout(() => {
+      if (window.location.pathname === '/login') {
+        console.log('Router navigation failed, trying window.location');
+        window.location.href = '/memories';
+      }
+    }, 500);
   };
 
   return (
@@ -72,11 +119,12 @@ export default function LoginPage() {
                 <input
                   id="apiKey"
                   type="password"
+                  className="w-full pl-10 pr-3 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="mem_lab_xxxxxxxxxxxx"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
-                  placeholder="mem_lab_xxxxxxxxxxxx"
                   required
+                  disabled={loading}
                 />
               </div>
               <p className="mt-2 text-xs text-gray-400">
@@ -84,34 +132,56 @@ export default function LoginPage() {
               </p>
             </div>
 
+            {success && (
+              <div className="flex items-center space-x-2 text-green-400 text-sm">
+                <CheckCircle className="h-4 w-4" />
+                <span>Login successful! Redirecting...</span>
+              </div>
+            )}
+
             {error && (
-              <div className="flex items-center space-x-2 text-red-400 bg-red-400/10 px-4 py-3 rounded-lg">
-                <AlertCircle className="h-5 w-5 flex-shrink-0" />
-                <span className="text-sm">{error}</span>
+              <div className="flex items-center space-x-2 text-red-400 text-sm">
+                <AlertCircle className="h-4 w-4" />
+                <span>{error}</span>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={loading || !apiKey}
-              className="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loading || success}
             >
-              {loading ? 'Authenticating...' : 'Access Dashboard'}
+              {loading ? 'Authenticating...' : success ? 'Redirecting...' : 'Access Dashboard'}
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-gray-700">
-            <div className="text-center text-sm text-gray-400">
-              <p>New user? Create your first memory via MCP</p>
-              <p className="mt-1">to receive your API key</p>
+          {/* Debug section - remove in production */}
+          <div className="mt-4 pt-4 border-t border-gray-700">
+            <button
+              onClick={testNavigation}
+              className="text-xs text-gray-500 hover:text-gray-400 underline"
+            >
+              Debug: Test Navigation
+            </button>
+            <div className="mt-2 text-xs text-gray-500">
+              <p>Test API Key: mem_lab_v26fp933sg61</p>
+              <p>If login succeeds but doesn't redirect, click the debug link above</p>
             </div>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gray-700">
+            <p className="text-center text-sm text-gray-400">
+              New user? Create your first memory via MCP
+              <br />
+              to receive your API key
+            </p>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="mt-8 text-center text-xs text-gray-500">
+        <div className="mt-8 text-center text-sm text-gray-500">
           <p>Research Lab Memory System</p>
-          <p className="mt-1">Powered by Claude + Human Collaboration</p>
+          <p>Powered by Claude + Human Collaboration</p>
         </div>
       </div>
     </div>

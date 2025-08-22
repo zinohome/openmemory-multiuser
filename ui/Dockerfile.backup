@@ -19,20 +19,12 @@ RUN pnpm install --frozen-lockfile
 FROM base AS builder
 WORKDIR /app
 
-# Set build-time environment variables
-ARG NEXT_PUBLIC_API_URL=http://mem-lab.duckdns.org:8765
-ARG NEXT_PUBLIC_USER_ID=research-lab
-
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_USER_ID=$NEXT_PUBLIC_USER_ID
-
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY . .
 
 RUN cp next.config.dev.mjs next.config.mjs
-
-# Build the application
+RUN cp .env.example .env
 RUN pnpm build
 
 FROM base AS runner

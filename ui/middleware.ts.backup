@@ -1,20 +1,4 @@
 // ui/middleware.ts
-// TEMPORARILY DISABLED FOR DEBUGGING
-
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-
-export function middleware(request: NextRequest) {
-  // Temporarily allow all routes for debugging
-  console.log('Middleware: Allowing route:', request.nextUrl.pathname);
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
-};
-
-/* ORIGINAL CODE - RESTORE AFTER FIXING
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -52,4 +36,3 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 };
-*/
