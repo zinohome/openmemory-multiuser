@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import get_or_create_user_with_api_key, validate_api_key
-from app.config import DEFAULT_APP_ID
+# Removed DEFAULT_APP_ID import - using "default" directly
 from app.database import SessionLocal
 from app.models import App, Memory, User
 from app.utils.memory import get_memory_client
@@ -49,14 +49,30 @@ def setup_mcp_server(app: FastAPI):
         if not api_key:
             raise HTTPException(status_code=401, detail="API key required")
         
-        # Validate API key
+        # Validate API key and get UUIDs
         db = SessionLocal()
         try:
             user = validate_api_key(api_key, db)
             if not user:
                 raise HTTPException(status_code=401, detail="Invalid API key")
-            user_id = user.user_id
-            app_id = DEFAULT_APP_ID
+            
+            user_uuid = user.id  # Use UUID primary key
+            user_id_str = user.user_id  # Keep string for logging
+            
+            # Get or create default app for this user
+            app = db.query(App).filter_by(owner_id=user_uuid, name="default").first()
+            if not app:
+                app = App(
+                    name="default",
+                    owner_id=user_uuid,
+                    is_active=True
+                )
+                db.add(app)
+                db.commit()
+                db.refresh(app)
+            
+            app_uuid = app.id
+            
         finally:
             db.close()
         
@@ -65,13 +81,14 @@ def setup_mcp_server(app: FastAPI):
         message_queue = asyncio.Queue()
         
         sse_sessions[session_id] = {
-            "user_id": user_id,
-            "app_id": app_id,
+            "user_uuid": user_uuid,      # For database operations
+            "user_id_str": user_id_str,  # For vector store operations  
+            "app_uuid": app_uuid,
             "client": client,
             "queue": message_queue
         }
         
-        logger.info(f"SSE session created: {session_id} for user: {user_id}, client: {client}")
+        logger.info(f"SSE session created: {session_id} for user: {user_id_str}, client: {client}")
         
         async def cleanup():
             """Clean up session on disconnect"""
@@ -151,8 +168,9 @@ def setup_mcp_server(app: FastAPI):
                 }
             }
         
-        user_id = session["user_id"]
-        app_id = session["app_id"]
+        user_uuid = session["user_uuid"]
+        user_id_str = session["user_id_str"]
+        app_uuid = session["app_uuid"]
         
         try:
             # Get the JSON-RPC request
@@ -166,7 +184,7 @@ def setup_mcp_server(app: FastAPI):
             
             # Handle different methods
             response = await process_mcp_request(
-                method, params, request_id, user_id, app_id
+                method, params, request_id, user_uuid, user_id_str, app_uuid
             )
             
             # Queue the response to be sent via SSE
@@ -225,8 +243,24 @@ def setup_mcp_server(app: FastAPI):
                         "message": "Invalid API key"
                     }
                 }
-            user_id = user.user_id
-            app_id = DEFAULT_APP_ID
+            
+            user_uuid = user.id  # Use UUID primary key
+            user_id_str = user.user_id  # Keep string for logging
+            
+            # Get or create default app for this user
+            app = db.query(App).filter_by(owner_id=user_uuid, name="default").first()
+            if not app:
+                app = App(
+                    name="default",
+                    owner_id=user_uuid,
+                    is_active=True
+                )
+                db.add(app)
+                db.commit()
+                db.refresh(app)
+            
+            app_uuid = app.id
+            
         finally:
             db.close()
         
@@ -249,10 +283,10 @@ def setup_mcp_server(app: FastAPI):
         request_id = rpc_request.get("id")
         
         # Process and return directly
-        return await process_mcp_request(method, params, request_id, user_id, app_id)
+        return await process_mcp_request(method, params, request_id, user_uuid, user_id_str, app_uuid)
 
 
-async def process_mcp_request(method: str, params: dict, request_id: Any, user_id: str, app_id: str) -> dict:
+async def process_mcp_request(method: str, params: dict, request_id: Any, user_uuid: str, user_id_str: str, app_uuid: str) -> dict:
     """Process MCP request and return response"""
     
     if method == "initialize":
@@ -334,11 +368,11 @@ async def process_mcp_request(method: str, params: dict, request_id: Any, user_i
         
         try:
             if tool_name == "add_memory":
-                result = await handle_add_memory(user_id, app_id, tool_args)
+                result = await handle_add_memory(user_uuid, user_id_str, app_uuid, tool_args)
             elif tool_name == "search_memories":
-                result = await handle_search_memories(user_id, app_id, tool_args)
+                result = await handle_search_memories(user_uuid, user_id_str, app_uuid, tool_args)
             elif tool_name == "list_memories":
-                result = await handle_list_memories(user_id, app_id, tool_args)
+                result = await handle_list_memories(user_uuid, user_id_str, app_uuid, tool_args)
             else:
                 return {
                     "jsonrpc": "2.0",
@@ -385,7 +419,7 @@ async def process_mcp_request(method: str, params: dict, request_id: Any, user_i
         }
 
 
-async def handle_add_memory(user_id: str, app_id: str, args: Dict[str, Any]) -> str:
+async def handle_add_memory(user_uuid: str, user_id_str: str, app_uuid: str, args: Dict[str, Any]) -> str:
     """Handle add_memory tool call"""
     text = args.get("text")
     if not text:
@@ -393,64 +427,51 @@ async def handle_add_memory(user_id: str, app_id: str, args: Dict[str, Any]) -> 
     
     db = SessionLocal()
     try:
-        # Get or create user and app
-        user = db.query(User).filter_by(user_id=user_id).first()
+        # Get user (should exist since we validated API key)
+        user = db.query(User).filter_by(id=user_uuid).first()
         if not user:
-            user = User(user_id=user_id)
-            db.add(user)
-            db.commit()
+            return "Error: User not found"
         
-        app = db.query(App).filter_by(id=app_id).first()
-        
-        # Create memory record
+        # Create memory record with correct column names and UUID types
         memory = Memory(
-            id=str(uuid4()),
-            user_id=user_id,
-            app_id=app_id,
-            memory=text,
+            id=uuid4(),                    # Generate UUID for memory ID
+            user_id=user_uuid,             # Use UUID foreign key
+            app_id=app_uuid,               # Use UUID foreign key  
+            content=text,                  # Use 'content' column, not 'memory'
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
         db.add(memory)
         db.commit()
+        db.refresh(memory)
         
         # Try to add to vector store if available
         try:
-            from app.utils.memory import get_memory_client
             memory_client = get_memory_client()
             if memory_client:
-                # Add to vector store
+                # Add to vector store using string user_id
                 memory_client.add(
                     messages=[{"role": "user", "content": text}],
-                    user_id=user_id,
-                    metadata={"app_id": app_id},
+                    user_id=user_id_str,  # Vector store expects string user_id
+                    metadata={"app_id": str(app_uuid)},
                 )
-                logger.info(f"Added memory to vector store for user {user_id}")
+                logger.info(f"Added memory to vector store for user {user_id_str}")
         except Exception as e:
             logger.warning(f"Failed to add to vector store: {e}")
             # Continue anyway - database entry was successful
-        
-        # Check if this is the user's first memory and return API key if so
-        memory_count = db.query(Memory).filter_by(user_id=user_id).count()
-        
-        if memory_count == 1:
-            # Get the API key for this user
-            from app.models import ApiKey
-            api_key_record = db.query(ApiKey).filter_by(user_id=user.id).first()
-            if api_key_record:
-                return f"Memory stored successfully! This was your first memory. Your API key for future use is: {api_key_record.key}"
         
         return f"Memory stored successfully. ID: {memory.id}"
         
     except Exception as e:
         db.rollback()
         logger.error(f"Error adding memory: {e}")
+        logger.error(traceback.format_exc())
         raise
     finally:
         db.close()
 
 
-async def handle_search_memories(user_id: str, app_id: str, args: Dict[str, Any]) -> str:
+async def handle_search_memories(user_uuid: str, user_id_str: str, app_uuid: str, args: Dict[str, Any]) -> str:
     """Handle search_memories tool call"""
     query = args.get("query")
     limit = args.get("limit", 5)
@@ -460,19 +481,19 @@ async def handle_search_memories(user_id: str, app_id: str, args: Dict[str, Any]
     
     try:
         # Try vector search first
-        from app.utils.memory import get_memory_client
         memory_client = get_memory_client()
         if memory_client:
             results = memory_client.search(
                 query=query,
-                user_id=user_id,
+                user_id=user_id_str,  # Vector store expects string user_id
                 limit=limit
             )
             
             if results:
                 formatted_results = []
                 for i, result in enumerate(results, 1):
-                    memory_text = result.get("memory", "")
+                    # Vector store returns 'memory' key, but we want 'content'
+                    memory_text = result.get("memory", result.get("content", ""))
                     score = result.get("score", 0)
                     formatted_results.append(f"{i}. {memory_text} (relevance: {score:.2f})")
                 
@@ -486,14 +507,14 @@ async def handle_search_memories(user_id: str, app_id: str, args: Dict[str, Any]
     db = SessionLocal()
     try:
         memories = db.query(Memory).filter(
-            Memory.user_id == user_id,
-            Memory.memory.ilike(f"%{query}%")
+            Memory.user_id == user_uuid,           # Use UUID for database query
+            Memory.content.ilike(f"%{query}%")     # Use 'content' column
         ).limit(limit).all()
         
         if memories:
             formatted_results = []
             for i, memory in enumerate(memories, 1):
-                formatted_results.append(f"{i}. {memory.memory}")
+                formatted_results.append(f"{i}. {memory.content}")  # Use 'content' attribute
             
             return f"Found {len(memories)} memories:\n" + "\n".join(formatted_results)
         else:
@@ -503,14 +524,14 @@ async def handle_search_memories(user_id: str, app_id: str, args: Dict[str, Any]
         db.close()
 
 
-async def handle_list_memories(user_id: str, app_id: str, args: Dict[str, Any]) -> str:
+async def handle_list_memories(user_uuid: str, user_id_str: str, app_uuid: str, args: Dict[str, Any]) -> str:
     """Handle list_memories tool call"""
     limit = args.get("limit", 10)
     
     db = SessionLocal()
     try:
         memories = db.query(Memory).filter_by(
-            user_id=user_id
+            user_id=user_uuid  # Use UUID for database query
         ).order_by(Memory.created_at.desc()).limit(limit).all()
         
         if not memories:
@@ -519,7 +540,7 @@ async def handle_list_memories(user_id: str, app_id: str, args: Dict[str, Any]) 
         formatted_results = []
         for i, memory in enumerate(memories, 1):
             created_at = memory.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            formatted_results.append(f"{i}. [{created_at}] {memory.memory}")
+            formatted_results.append(f"{i}. [{created_at}] {memory.content}")  # Use 'content' attribute
         
         return f"Your {len(memories)} most recent memories:\n" + "\n".join(formatted_results)
         
