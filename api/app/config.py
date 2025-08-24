@@ -15,7 +15,9 @@ EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "http://localhost:11434")
 
 # User configuration
 USER_ID = os.getenv("USER_ID", "default_user")
-DEFAULT_APP_ID = os.getenv("DEFAULT_APP_ID", "default")
+
+# NOTE: DEFAULT_APP_ID removed - apps are now created per user automatically
+# This provides better isolation and avoids UUID/string type issues
 
 # Optional: OpenAI configuration (disabled by default)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)

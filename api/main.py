@@ -2,7 +2,7 @@
 import datetime
 from uuid import uuid4
 
-from app.config import DEFAULT_APP_ID, USER_ID
+from app.config import USER_ID  # Removed DEFAULT_APP_ID import
 from app.database import Base, SessionLocal, engine
 from app.mcp_server import setup_mcp_server
 from app.models import App, User
