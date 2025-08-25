@@ -20,7 +20,7 @@ interface ProfileState {
   apps: any[];
 }
 
-// Initialize with your test users
+// Initialize with your test users, including new Alice and Bob users
 const defaultUsers: User[] = [
   {
     id: 'research-lab',
@@ -33,6 +33,20 @@ const defaultUsers: User[] = [
     id: 'opti',
     name: 'opti',
     displayName: 'Opti',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'alice',
+    name: 'alice',
+    displayName: 'Alice Smith',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'bob',
+    name: 'bob',
+    displayName: 'Bob Wilson',
     isActive: true,
     createdAt: new Date().toISOString()
   },

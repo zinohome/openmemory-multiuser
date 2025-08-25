@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
-from app.auth import require_user
+from app.auth import require_user, create_user_with_api_key
 from app.database import get_db
 from app.models import User, Memory
 
@@ -20,6 +20,23 @@ class UserResponse(BaseModel):
     created_at: str
     last_active: Optional[str]
     memory_count: int = 0
+
+
+class CreateUserRequest(BaseModel):
+    user_id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
+class CreateUserResponse(BaseModel):
+    success: bool
+    user_id: str
+    name: str
+    email: Optional[str]
+    api_key: str
+    uuid: str
+    created_at: str
+    message: str
 
 
 @router.get("/", response_model=List[UserResponse])
@@ -77,3 +94,39 @@ def get_user(
         last_active=user.last_active.isoformat() if user.last_active else None,
         memory_count=memory_count
     )
+
+
+@router.post("/create", response_model=CreateUserResponse)
+def create_new_user(
+    request: CreateUserRequest,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new user with API key (admin functionality)"""
+    
+    try:
+        # Use the existing create_user_with_api_key function
+        user, api_key = create_user_with_api_key(
+            user_id=request.user_id,
+            db=db,
+            name=request.name,
+            email=request.email
+        )
+        
+        return CreateUserResponse(
+            success=True,
+            user_id=user.user_id,
+            name=user.name or user.user_id,
+            email=user.email,
+            api_key=api_key,
+            uuid=str(user.id),
+            created_at=user.created_at.isoformat(),
+            message=f"User '{request.user_id}' created successfully"
+        )
+        
+    except ValueError as e:
+        if "already exists" in str(e):
+            raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
