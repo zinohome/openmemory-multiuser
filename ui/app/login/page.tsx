@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Brain, Key, AlertCircle, CheckCircle } from 'lucide-react';
 
 export default function LoginPage() {
@@ -155,25 +156,15 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Debug section - remove in production */}
-          <div className="mt-4 pt-4 border-t border-gray-700">
-            <button
-              onClick={testNavigation}
-              className="text-xs text-gray-500 hover:text-gray-400 underline"
-            >
-              Debug: Test Navigation
-            </button>
-            <div className="mt-2 text-xs text-gray-500">
-              <p>Test API Key: mem_lab_v26fp933sg61</p>
-              <p>If login succeeds but doesn't redirect, click the debug link above</p>
-            </div>
-          </div>
-
           <div className="mt-6 pt-6 border-t border-gray-700">
             <p className="text-center text-sm text-gray-400">
-              New user? Create your first memory via MCP
-              <br />
-              to receive your API key
+              New to OpenMemory?{' '}
+              <Link 
+                href="/register" 
+                className="text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Create an account
+              </Link>
             </p>
           </div>
         </div>

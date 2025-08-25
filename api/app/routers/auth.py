@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
+import re
 
 from app.auth import (
     get_current_user,
@@ -28,6 +29,20 @@ class LoginResponse(BaseModel):
     message: str
 
 
+class RegisterRequest(BaseModel):
+    user_id: str
+    display_name: str
+
+
+class RegisterResponse(BaseModel):
+    success: bool
+    user_id: str
+    name: str
+    api_key: str
+    message: str
+    mcp_config: dict
+
+
 class ValidateResponse(BaseModel):
     valid: bool
     user_id: Optional[str] = None
@@ -39,6 +54,11 @@ class CurrentUserResponse(BaseModel):
     name: str
     email: Optional[str]
     created_at: str
+
+
+def validate_username(username: str) -> bool:
+    """Validate username format: lowercase, alphanumeric, underscores, 3-20 chars"""
+    return bool(re.match(r'^[a-z][a-z0-9_]{2,19}$', username))
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -55,6 +75,64 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         name=user.name or user.user_id,
         message="Login successful"
     )
+
+
+@router.post("/register", response_model=RegisterResponse)
+def register(request: RegisterRequest, db: Session = Depends(get_db)):
+    """Register a new user with username and display name"""
+    
+    # Validate username format
+    if not validate_username(request.user_id):
+        raise HTTPException(
+            status_code=400, 
+            detail="Username must be lowercase, start with a letter, and be 3-20 characters (letters, numbers, underscores only)"
+        )
+    
+    # Validate display name
+    if not request.display_name or len(request.display_name.strip()) < 1:
+        raise HTTPException(status_code=400, detail="Display name is required")
+    
+    if len(request.display_name.strip()) > 50:
+        raise HTTPException(status_code=400, detail="Display name must be 50 characters or less")
+    
+    try:
+        # Create user with API key
+        user, api_key = create_user_with_api_key(
+            user_id=request.user_id,
+            db=db,
+            name=request.display_name.strip()
+        )
+        
+        # Generate MCP configuration
+        mcp_config = {
+            "mcpServers": {
+                "openmemory": {
+                    "command": "npx",
+                    "args": [
+                        "-y",
+                        "supergateway",
+                        "--sse",
+                        f"http://mem-lab.duckdns.org:8765/mcp/claude/sse?key={api_key}"
+                    ]
+                }
+            }
+        }
+        
+        return RegisterResponse(
+            success=True,
+            user_id=user.user_id,
+            name=user.name,
+            api_key=api_key,
+            message=f"Account created successfully for {user.name}",
+            mcp_config=mcp_config
+        )
+        
+    except ValueError as e:
+        if "already exists" in str(e):
+            raise HTTPException(status_code=409, detail=f"Username '{request.user_id}' is already taken")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 
 @router.post("/validate", response_model=ValidateResponse)
