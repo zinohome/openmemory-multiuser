@@ -4,84 +4,13 @@ import { Button } from "@/components/ui/button";
 import { UserSwitcher } from "@/components/shared/UserSwitcher";
 import { HiHome, HiMiniRectangleStack } from "react-icons/hi2";
 import { RiApps2AddFill } from "react-icons/ri";
-import { FiRefreshCcw } from "react-icons/fi";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CreateMemoryDialog } from "@/app/memories/components/CreateMemoryDialog";
-import { useMemoriesApi } from "@/hooks/useMemoriesApi";
 import Image from "next/image";
-import { useStats } from "@/hooks/useStats";
-import { useAppsApi } from "@/hooks/useAppsApi";
 import { Settings } from "lucide-react";
-import { useConfig } from "@/hooks/useConfig";
 
 export function Navbar() {
   const pathname = usePathname();
-
-  const memoriesApi = useMemoriesApi();
-  const appsApi = useAppsApi();
-  const statsApi = useStats();
-  const configApi = useConfig();
-
-  // Define route matchers with typed parameter extraction
-  const routeBasedFetchMapping: {
-    match: RegExp;
-    getFetchers: (params: Record<string, string>) => (() => Promise<any>)[];
-  }[] = [
-    {
-      match: /^\/memory\/([^/]+)$/,
-      getFetchers: ({ memory_id }) => [
-        () => memoriesApi.fetchMemoryById(memory_id),
-        () => memoriesApi.fetchAccessLogs(memory_id),
-        () => memoriesApi.fetchRelatedMemories(memory_id),
-      ],
-    },
-    {
-      match: /^\/apps\/([^/]+)$/,
-      getFetchers: ({ app_id }) => [
-        () => appsApi.fetchAppMemories(app_id),
-        () => appsApi.fetchAppAccessedMemories(app_id),
-        () => appsApi.fetchAppDetails(app_id),
-      ],
-    },
-    {
-      match: /^\/memories$/,
-      getFetchers: () => [memoriesApi.fetchMemories],
-    },
-    {
-      match: /^\/apps$/,
-      getFetchers: () => [appsApi.fetchApps],
-    },
-    {
-      match: /^\/$/,
-      getFetchers: () => [statsApi.fetchStats, memoriesApi.fetchMemories],
-    },
-    {
-      match: /^\/settings$/,
-      getFetchers: () => [configApi.fetchConfig],
-    },
-  ];
-
-  const getFetchersForPath = (path: string) => {
-    for (const route of routeBasedFetchMapping) {
-      const match = path.match(route.match);
-      if (match) {
-        if (route.match.source.includes("memory")) {
-          return route.getFetchers({ memory_id: match[1] });
-        }
-        if (route.match.source.includes("app")) {
-          return route.getFetchers({ app_id: match[1] });
-        }
-        return route.getFetchers({});
-      }
-    }
-    return [];
-  };
-
-  const handleRefresh = async () => {
-    const fetchers = getFetchersForPath(pathname);
-    await Promise.allSettled(fetchers.map((fn) => fn()));
-  };
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === href;
@@ -150,16 +79,6 @@ export function Navbar() {
         </div>
         <div className="flex items-center gap-4">
           <UserSwitcher />
-          <Button
-            onClick={handleRefresh}
-            variant="outline"
-            size="sm"
-            className="border-zinc-700/50 bg-zinc-900 hover:bg-zinc-800"
-          >
-            <FiRefreshCcw className="transition-transform duration-300 group-hover:rotate-180" />
-            Refresh
-          </Button>
-          <CreateMemoryDialog />
         </div>
       </div>
     </header>
