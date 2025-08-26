@@ -112,7 +112,9 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
                         "-y",
                         "supergateway",
                         "--sse",
-                        f"http://mem-lab.duckdns.org:8765/mcp/claude/sse?key={api_key}"
+                        "http://mem-lab.duckdns.org:8765/mcp/claude/sse",
+                        "--oauth2Bearer",
+                        api_key
                     ]
                 }
             }
