@@ -71,20 +71,10 @@ export const UserSwitcher: React.FC = () => {
     );
   }
 
-  // Show message if no users available
+  // CLEAN: Don't render anything if no users available
+  // This removes the confusing "No users - Please login" message
   if (availableUsers.length === 0) {
-    return (
-      <div className="flex items-center space-x-3">
-        <div className="flex items-center space-x-2">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">User:</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <UserIcon className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">No users - Please login</span>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
