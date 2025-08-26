@@ -100,8 +100,19 @@ Add to your `claude_desktop_config.json`:
 
 ## 👥 Multi-User Setup
 
+The system comes pre-configured with these users:
+- **research-lab**: Research Lab (Blue avatar)
+- **opti**: Opti (Green avatar)  
+- **piper**: Piper (Purple avatar)
+- **d**: D (Orange avatar)
 
-The system supports fully dynamic user management:\n- **Dynamic User Loading**: Users are loaded from the database via API\n- **Registration System**: New users can register via the web UI at http://localhost:3000/register\n- **API Key Authentication**: Secure authentication for each user\n- **User Isolation**: Complete data separation between users\n
+### Adding New Users
+
+Users are automatically created when they first store a memory. To add them to the UI:
+
+1. Edit `ui/store/profileSlice.ts`
+2. Add user to the `defaultUsers` array
+3. Rebuild: `docker compose up -d --build`
 
 ## 🔧 Key Modifications Made
 

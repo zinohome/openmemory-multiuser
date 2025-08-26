@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '@/store/store';
 import { setUserId, User } from '@/store/profileSlice';
-import { loadUsersFromAPI } from '@/services/userService';
 import {
   Select,
   SelectContent,
@@ -14,18 +13,11 @@ import {
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Users, User as UserIcon, Loader2 } from "lucide-react";
+import { Users, User as UserIcon } from "lucide-react";
 
 export const UserSwitcher: React.FC = () => {
   const dispatch = useDispatch();
-  const { userId, currentUser, availableUsers, status } = useSelector((state: RootState) => state.profile);
-
-  // Load users on component mount if not already loaded
-  useEffect(() => {
-    if (availableUsers.length === 0 && status === 'idle') {
-      loadUsersFromAPI(dispatch);
-    }
-  }, [dispatch, availableUsers.length, status]);
+  const { userId, currentUser, availableUsers } = useSelector((state: RootState) => state.profile);
 
   const handleUserChange = (newUserId: string) => {
     dispatch(setUserId(newUserId));
@@ -55,38 +47,6 @@ export const UserSwitcher: React.FC = () => {
     return colors[index];
   };
 
-  // Show loading state
-  if (status === 'loading') {
-    return (
-      <div className="flex items-center space-x-3">
-        <div className="flex items-center space-x-2">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">User:</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show message if no users available
-  if (availableUsers.length === 0) {
-    return (
-      <div className="flex items-center space-x-3">
-        <div className="flex items-center space-x-2">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">User:</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <UserIcon className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">No users - Please login</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex items-center space-x-3">
       <div className="flex items-center space-x-2">
@@ -98,12 +58,12 @@ export const UserSwitcher: React.FC = () => {
         <SelectTrigger className="w-[180px] bg-background border-input">
           <SelectValue>
             <div className="flex items-center space-x-2">
-              <Avatar className={`h-6 w-6 ${currentUser ? getAvatarColor(currentUser.id) : 'bg-gray-500'}`}>
+              <Avatar className={`h-6 w-6 ${getAvatarColor(userId)}`}>
                 <AvatarFallback className="text-xs text-white">
-                  {currentUser ? getInitials(currentUser.displayName) : '??'}
+                  {currentUser ? getInitials(currentUser.displayName) : 'U'}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm">
+              <span className="truncate">
                 {currentUser?.displayName || 'Select User'}
               </span>
             </div>
@@ -112,19 +72,19 @@ export const UserSwitcher: React.FC = () => {
         <SelectContent>
           {availableUsers.map((user) => (
             <SelectItem key={user.id} value={user.id}>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 w-full">
                 <Avatar className={`h-6 w-6 ${getAvatarColor(user.id)}`}>
                   <AvatarFallback className="text-xs text-white">
                     {getInitials(user.displayName)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
-                  <span className="text-sm">{user.displayName}</span>
+                  <span className="font-medium">{user.displayName}</span>
                   <span className="text-xs text-muted-foreground">{user.name}</span>
                 </div>
                 {user.isActive && (
                   <Badge variant="secondary" className="ml-auto">
-                    <span className="text-xs">Active</span>
+                    Active
                   </Badge>
                 )}
               </div>
@@ -132,12 +92,6 @@ export const UserSwitcher: React.FC = () => {
           ))}
         </SelectContent>
       </Select>
-      
-      {availableUsers.length > 0 && (
-        <Badge variant="outline">
-          {availableUsers.length} user{availableUsers.length !== 1 ? 's' : ''}
-        </Badge>
-      )}
     </div>
   );
 };

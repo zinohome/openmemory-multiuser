@@ -332,7 +332,7 @@ export default function RegisterPage() {
 
         {/* Footer */}
         <div className="mt-8 text-center text-sm text-gray-500">
-          <p>Research Lab Memory System</p>
+          <p>OpenMemory Multi-User System</p>
           <p>Powered by Claude + Human Collaboration</p>
         </div>
       </div>

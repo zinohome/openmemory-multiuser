@@ -20,11 +20,56 @@ interface ProfileState {
   apps: any[];
 }
 
-// NO MORE HARDCODED USERS - Users loaded dynamically from API
+// Initialize with your test users, including new Alice and Bob users
+const defaultUsers: User[] = [
+  {
+    id: 'research-lab',
+    name: 'research-lab',
+    displayName: 'Research Lab',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'opti',
+    name: 'opti',
+    displayName: 'Opti',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'alice',
+    name: 'alice',
+    displayName: 'Alice Smith',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'bob',
+    name: 'bob',
+    displayName: 'Bob Wilson',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'piper',
+    name: 'piper',
+    displayName: 'Piper',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'd',
+    name: 'd',
+    displayName: 'D',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  }
+];
+
 const initialState: ProfileState = {
-  userId: '',
-  currentUser: null,
-  availableUsers: [], // Start with empty array
+  userId: process.env.NEXT_PUBLIC_USER_ID || 'research-lab',
+  currentUser: defaultUsers.find(u => u.id === (process.env.NEXT_PUBLIC_USER_ID || 'research-lab')) || defaultUsers[0],
+  availableUsers: defaultUsers,
   totalMemories: 0,
   totalApps: 0,
   status: 'idle',
@@ -43,14 +88,6 @@ const profileSlice = createSlice({
     setCurrentUser: (state, action: PayloadAction<User>) => {
       state.currentUser = action.payload;
       state.userId = action.payload.id;
-    },
-    setAvailableUsers: (state, action: PayloadAction<User[]>) => {
-      state.availableUsers = action.payload;
-      // If no current user set, use the first available user
-      if (!state.currentUser && action.payload.length > 0) {
-        state.currentUser = action.payload[0];
-        state.userId = action.payload[0].id;
-      }
     },
     addUser: (state, action: PayloadAction<Omit<User, 'createdAt'>>) => {
       const newUser: User = {
@@ -83,18 +120,11 @@ const profileSlice = createSlice({
       state.status = 'failed';
       state.error = action.payload;
     },
-    setProfileSuccess: (state) => {
-      state.status = 'succeeded';
-      state.error = null;
-    },
     resetProfileState: (state) => {
       state.status = 'idle';
       state.error = null;
-      // Don't reset to hardcoded users - keep it dynamic
-      if (state.availableUsers.length > 0) {
-        state.currentUser = state.availableUsers[0];
-        state.userId = state.availableUsers[0].id;
-      }
+      state.userId = process.env.NEXT_PUBLIC_USER_ID || 'research-lab';
+      state.currentUser = state.availableUsers.find(u => u.id === state.userId) || state.availableUsers[0];
     },
     setTotalMemories: (state, action: PayloadAction<number>) => {
       state.totalMemories = action.payload;
@@ -111,13 +141,11 @@ const profileSlice = createSlice({
 export const {
   setUserId,
   setCurrentUser,
-  setAvailableUsers,
   addUser,
   updateUser,
   removeUser,
   setProfileLoading,
   setProfileError,
-  setProfileSuccess,
   resetProfileState,
   setTotalMemories,
   setTotalApps,
