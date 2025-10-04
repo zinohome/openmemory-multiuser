@@ -40,7 +40,7 @@ services:
       - DATABASE_URL=postgresql://openmemory:openmemory123@postgres:5432/openmemory
       - QDRANT_URL=http://qdrant:6333  # Internal port stays 6333
       - EMBEDDING_MODEL=mxbai-embed-large
-      - EMBEDDING_API_URL=http://172.19.0.1:11434  # Fixed: Use actual Docker gateway IP
+      - EMBEDDING_API_URL=http://ollama:11434  # Fixed: Use actual Docker gateway IP
       - USER_ID=default_user
       - DEFAULT_APP_ID=default
     ports:
