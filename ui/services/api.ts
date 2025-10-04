@@ -13,7 +13,7 @@ const API_BASE_URL = '/api/proxy'; // 使用代理路径
 // Create axios instance with auth interceptor
 const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: false, // 添加这一行，确保跨域请求包含凭证
+  withCredentials: false, // 添加这一行，确保跨域请求不包含凭证
   timeout: 10000, // 添加超时设置，避免请求无限等待
   headers: {
     'Content-Type': 'application/json',
