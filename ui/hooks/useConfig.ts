@@ -30,7 +30,10 @@ export const useConfig = (): UseConfigApiReturn => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const dispatch = useDispatch<AppDispatch>();
-  const URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8765";
+  // 保持现有的配置，但确保一致性
+  //const URL = process.env.NEXT_PUBLIC_API_URL || "http://192.168.66.163:8765";
+  // 需要修改为
+  const URL = '/api/proxy';
   
   const fetchConfig = async () => {
     setIsLoading(true);
@@ -128,4 +131,4 @@ export const useConfig = (): UseConfigApiReturn => {
     isLoading,
     error
   };
-}; 
+};

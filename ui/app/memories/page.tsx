@@ -40,14 +40,16 @@ export default function MemoriesPage() {
   const checkAuth = () => {
     if (typeof window === 'undefined') return;
     
+    //console.log('('Checking authentication...');
     const apiKey = sessionStorage.getItem('api_key') || localStorage.getItem('api_key');
     const userId = sessionStorage.getItem('user_id') || localStorage.getItem('user_id');
     const userName = sessionStorage.getItem('user_name') || localStorage.getItem('user_name');
 
     if (!apiKey) {
-      router.push('/login');
-      return;
-    }
+    //console.log('('No API key found, redirecting to login');
+    router.push('/login');
+    return;
+  }
 
     setCurrentUser({ userId, userName, apiKey: apiKey.substring(0, 10) + '...' });
   };

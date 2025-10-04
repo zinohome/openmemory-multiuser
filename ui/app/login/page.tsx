@@ -20,8 +20,8 @@ export default function LoginPage() {
 
     try {
       // Use the external API URL directly
-      const apiUrl = 'http://192.168.66.163:8765';
-      console.log('Attempting login to:', apiUrl);
+      const apiUrl = '/api/proxy'; // 使用代理路径
+      //console.log('('Attempting login to:', `${apiUrl}/api/v1/auth/login`);
       
       const response = await fetch(`${apiUrl}/api/v1/auth/login`, {
         method: 'POST',
@@ -29,47 +29,93 @@ export default function LoginPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ api_key: apiKey }),
+        credentials: 'include' // 确保包含cookies
       });
 
-      const data = await response.json();
-      console.log('Login response:', data);
+      // 先读取响应文本，保存后再尝试解析
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        console.error(`Server error: ${response.status} ${response.statusText}`);
+        console.error('Response text:', responseText);
+        setError(`Server error: ${response.status} ${response.statusText}`);
+        return;
+      }
+
+      // 尝试解析JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        //console.log('('Login response:', data);
+      } catch (jsonError) {
+        console.error('Failed to parse JSON:', jsonError);
+        console.error('Response text:', responseText);
+        setError('Server returned invalid response');
+        return;
+      }
+      //const data = await response.json();
+      //console.log('Login response:', data);
 
       if (response.ok && data.success) {
-        // Store API key in session storage
+        // 清除旧的存储数据
+        sessionStorage.clear();
+        localStorage.clear();
+
+        // 存储API key和用户信息
         sessionStorage.setItem('api_key', apiKey);
         sessionStorage.setItem('user_id', data.user_id);
         sessionStorage.setItem('user_name', data.name || data.user_id);
         
-        // Also store in localStorage as backup
+        // localStorage备份
         localStorage.setItem('api_key', apiKey);
         localStorage.setItem('user_id', data.user_id);
         localStorage.setItem('user_name', data.name || data.user_id);
         
-        console.log('Login successful, stored credentials');
-        console.log('Stored user_id:', data.user_id);
-        console.log('Stored user_name:', data.name);
+        // 安全地设置cookie
+        const authToken = `${data.user_id}:${apiKey}`;
+        // 修改前的cookie设置
+        // document.cookie = `om_auth=${encodeURIComponent(authToken)}; path=/; max-age=86400; SameSite=Lax`;
+
+        // 修改后的cookie设置（更详细的配置）
+        // 修改后的cookie设置
+        const setAuthCookie = (name: string, value: string, days: number = 1) => {
+          const expirationDate = new Date();
+          expirationDate.setDate(expirationDate.getDate() + days);
+          
+          // 简化cookie设置，确保路径和SameSite设置正确
+          document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${days * 24 * 60 * 60}; SameSite=Lax`;
+        };
+
+        // 使用新函数设置cookie
+        setAuthCookie('om_auth', authToken);
         
+        //console.log('('Login success - cookies after setting:', document.cookie);
+        //console.log('('Cookie value:', document.cookie.includes('om_auth') ? 'Cookie exists' : 'Cookie missing');
+                
         // Show success message
         setSuccess(true);
         setError('');
         
-        // Try multiple navigation methods
-        setTimeout(() => {
-          console.log('Attempting navigation to /memories');
-          
-          // Method 1: Next.js router
-          router.push('/memories');
-          
-          // Method 2: Fallback to window.location after a delay
-          setTimeout(() => {
-            // If we're still on this page, force navigation
-            if (window.location.pathname === '/login') {
-              console.log('Router.push failed, using window.location');
-              window.location.href = '/memories';
-            }
-          }, 1000);
-        }, 500);
+        // 获取重定向参数，如果有的话
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirectPath = urlParams.get('redirect') || '/memories';
+
+        // 临时解决方案：直接在sessionStorage中设置当前用户信息，避免加载用户列表
+        const currentUserInfo = {
+          id: data.user_id,
+          name: data.user_id,
+          displayName: data.name || data.user_id,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        };
+
+        sessionStorage.setItem('currentUser', JSON.stringify(currentUserInfo));
         
+        // 使用window.location进行可靠的重定向
+        setTimeout(() => {
+          //console.log('('Redirecting to:', redirectPath);
+          window.location.href = redirectPath;
+        }, 500);        
       } else {
         setError(data.detail || 'Invalid API key');
         console.error('Login failed:', data);
@@ -84,11 +130,11 @@ export default function LoginPage() {
 
   // Add a debug function to test navigation
   const testNavigation = () => {
-    console.log('Testing navigation...');
+    //console.log('('Testing navigation...');
     router.push('/memories');
     setTimeout(() => {
       if (window.location.pathname === '/login') {
-        console.log('Router navigation failed, trying window.location');
+        //console.log('('Router navigation failed, trying window.location');
         window.location.href = '/memories';
       }
     }, 500);

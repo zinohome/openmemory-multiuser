@@ -32,7 +32,9 @@ export const useFiltersApi = (): UseFiltersApiReturn => {
   const dispatch = useDispatch<AppDispatch>();
   const user_id = useSelector((state: RootState) => state.profile.userId);
 
-  const URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8765";
+  //const URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8765";
+  // 修改后
+  const URL = '/api/proxy';
 
   const fetchCategories = useCallback(async (): Promise<void> => {
     setIsLoading(true);

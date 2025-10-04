@@ -1,8 +1,14 @@
 // ui/services/userService.ts
+// 修改前的代码
+//import { setAvailableUsers, setProfileLoading, setProfileError, setProfileSuccess, User } from '@/store/profileSlice';
+//import { Dispatch } from '@reduxjs/toolkit';
+
+//const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.66.163:8765';
+
+// 修改后的代码
 import { setAvailableUsers, setProfileLoading, setProfileError, setProfileSuccess, User } from '@/store/profileSlice';
 import { Dispatch } from '@reduxjs/toolkit';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.66.163:8765';
+import { apiService } from './api'; // 导入apiService实例
 
 // Transform API user response to our User interface
 const transformApiUser = (apiUser: any): User => ({
@@ -18,13 +24,18 @@ export const loadUsersFromAPI = async (dispatch: Dispatch) => {
   
   try {
     // First, try to get users from the API
-    const response = await fetch(`${API_BASE_URL}/api/v1/users`);
+    // 原来的代码使用fetch，没有认证头
+    // const response = await fetch(`${API_BASE_URL}/api/v1/users`);
+    // 
+    // if (!response.ok) {
+    //   throw new Error(`HTTP error! status: ${response.status}`);
+    // }
+    // 
+    // const apiUsers = await response.json();
+
+    // 修改后的代码：使用配置好认证拦截器的axios实例
+    const apiUsers = await apiService.getAllUsers();
     
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const apiUsers = await response.json();
     
     // Transform API users to our format
     const users: User[] = apiUsers.map(transformApiUser);

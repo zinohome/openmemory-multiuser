@@ -64,7 +64,7 @@ export default function RegisterPage() {
 
     try {
       const apiUrl = 'http://192.168.66.163:8765';
-      console.log('Attempting registration to:', apiUrl);
+      //console.log('('Attempting registration to:', apiUrl);
       
       const response = await fetch(`${apiUrl}/api/v1/auth/register`, {
         method: 'POST',
@@ -78,14 +78,14 @@ export default function RegisterPage() {
       });
 
       const data = await response.json();
-      console.log('Registration response:', data);
+      //console.log('('Registration response:', data);
 
       if (response.ok && data.success) {
         setRegistrationSuccess(true);
         setApiKey(data.api_key);
         setMcpConfig(data.mcp_config);
         setError('');
-        console.log('Registration successful');
+        //console.log('('Registration successful');
       } else {
         setError(data.detail || 'Registration failed');
         console.error('Registration failed:', data);

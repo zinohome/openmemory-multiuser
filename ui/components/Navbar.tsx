@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { UserSwitcher } from "@/components/shared/UserSwitcher";
+//import { UserSwitcher } from "@/components/shared/UserSwitcher";
 import { HiHome, HiMiniRectangleStack } from "react-icons/hi2";
 import { RiApps2AddFill } from "react-icons/ri";
 import Link from "next/link";
@@ -77,9 +77,10 @@ export function Navbar() {
             </Button>
           </Link>
         </div>
-        <div className="flex items-center gap-4">
+        {/* 删除 UserSwitcher 组件 */}
+        {/* <div className="flex items-center gap-4">
           <UserSwitcher />
-        </div>
+        </div> */}
       </div>
     </header>
   );
