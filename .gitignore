@@ -12,3 +12,6 @@ api/.openmemory*
 **/.next
 .openmemory/
 ui/package-lock.json
+.idea/
+.vscode/
+.venv/
