@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: openmemory-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openmemory
+      POSTGRES_PASSWORD: openmemory123
+      POSTGRES_DB: openmemory
+    volumes:
+      - /data/openmemory-persist/postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5932:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openmemory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - 1panel-network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: openmemory-qdrant
+    restart: unless-stopped
+    ports:
+      - "6335:6333"  # Changed from 6333 to 6335 to avoid conflict
+    volumes:
+      - /data/openmemory-persist/qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      - 1panel-network
+
+  openmemory-mcp:
+    container_name: openmemory-mcp
+    image: openmemory-multiuser-openmemory-mcp:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://openmemory:openmemory123@postgres:5432/openmemory
+      - QDRANT_URL=http://qdrant:6333  # Internal port stays 6333
+      - EMBEDDING_MODEL=mxbai-embed-large
+      - EMBEDDING_API_URL=http://172.19.0.1:11434  # Fixed: Use actual Docker gateway IP
+      - USER_ID=default_user
+      - DEFAULT_APP_ID=default
+    ports:
+      - "8765:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        echo 'Running migrations...' &&
+        python migrations/add_api_keys.py || true &&
+        echo 'Starting server...' &&
+        uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    networks:
+      - 1panel-network
+
+  openmemory-ui:
+    container_name: openmemory-ui
+    image: openmemory-multiuser-openmemory-ui:latest
+    restart: unless-stopped
+    environment:
+      # Runtime environment variables (not used by Next.js client-side)
+      NEXT_PUBLIC_API_URL: http://192.168.66.163:8765
+      NEXT_PUBLIC_USER_ID: research-lab
+    ports:
+      - "3900:3000"
+    depends_on:
+      - openmemory-mcp
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    external: true
