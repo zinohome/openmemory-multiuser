@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: openmemory123
       POSTGRES_DB: openmemory
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - /data/openmemory-persist/postgres_data:/var/lib/postgresql/data
     ports:
       - "5932:5432"
     healthcheck:
@@ -25,7 +25,7 @@ services:
     ports:
       - "6335:6333"  # Changed from 6333 to 6335 to avoid conflict
     volumes:
-      - qdrant_data:/qdrant/storage
+      - /data/openmemory-persist/qdrant_data:/qdrant/storage
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
 
@@ -75,10 +75,6 @@ services:
       - "3900:3000"
     depends_on:
       - openmemory-mcp
-
-volumes:
-  postgres_data:
-  qdrant_data:
 
 networks:
   default:
