@@ -2,7 +2,7 @@
 import { setAvailableUsers, setProfileLoading, setProfileError, setProfileSuccess, User } from '@/store/profileSlice';
 import { Dispatch } from '@reduxjs/toolkit';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://mem-lab.duckdns.org:8765';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.66.163:8765';
 
 // Transform API user response to our User interface
 const transformApiUser = (apiUser: any): User => ({

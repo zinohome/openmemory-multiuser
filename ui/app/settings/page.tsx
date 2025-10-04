@@ -135,7 +135,7 @@ export default function SettingsPage() {
               <div>
                 <label className="text-sm text-gray-400">API Endpoint</label>
                 <div className="mt-1 px-3 py-2 bg-gray-700 rounded-lg text-white font-mono text-sm">
-                  http://mem-lab.duckdns.org:8765
+                  http://192.168.66.163:8765
                 </div>
               </div>
             </div>

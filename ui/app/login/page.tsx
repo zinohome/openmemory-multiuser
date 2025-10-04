@@ -20,7 +20,7 @@ export default function LoginPage() {
 
     try {
       // Use the external API URL directly
-      const apiUrl = 'http://mem-lab.duckdns.org:8765';
+      const apiUrl = 'http://192.168.66.163:8765';
       console.log('Attempting login to:', apiUrl);
       
       const response = await fetch(`${apiUrl}/api/v1/auth/login`, {

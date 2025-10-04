@@ -20,7 +20,7 @@ FROM base AS builder
 WORKDIR /app
 
 # Set build-time environment variables
-ARG NEXT_PUBLIC_API_URL=http://mem-lab.duckdns.org:8765
+ARG NEXT_PUBLIC_API_URL=http://192.168.66.163:8765
 ARG NEXT_PUBLIC_USER_ID=research-lab
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL

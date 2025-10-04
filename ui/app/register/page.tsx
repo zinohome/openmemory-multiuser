@@ -63,7 +63,7 @@ export default function RegisterPage() {
     }
 
     try {
-      const apiUrl = 'http://mem-lab.duckdns.org:8765';
+      const apiUrl = 'http://192.168.66.163:8765';
       console.log('Attempting registration to:', apiUrl);
       
       const response = await fetch(`${apiUrl}/api/v1/auth/register`, {

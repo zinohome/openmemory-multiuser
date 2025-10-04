@@ -98,7 +98,7 @@ docker compose exec openmemory-mcp python3 user_management.py create charlie "Ch
 ### 1. Test Authentication
 
 ```bash
-curl -X POST http://mem-lab.duckdns.org:8765/api/v1/auth/login \
+curl -X POST http://192.168.66.163:8765/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"api_key": "NEW_API_KEY_HERE"}'
 ```
@@ -116,7 +116,7 @@ Expected response:
 ### 2. Test Memory Creation
 
 ```bash
-curl -X POST http://mem-lab.duckdns.org:8765/api/v1/memories/ \
+curl -X POST http://192.168.66.163:8765/api/v1/memories/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer NEW_API_KEY_HERE" \
   -d '{"text": "My first memory!"}'
@@ -125,7 +125,7 @@ curl -X POST http://mem-lab.duckdns.org:8765/api/v1/memories/ \
 ### 3. Test Memory Search
 
 ```bash
-curl -X POST "http://mem-lab.duckdns.org:8765/api/v1/memories/search?query=memory" \
+curl -X POST "http://192.168.66.163:8765/api/v1/memories/search?query=memory" \
   -H "Authorization: Bearer NEW_API_KEY_HERE"
 ```
 
@@ -157,7 +157,7 @@ docker compose restart openmemory-ui
 
 ### Web Login
 
-Users can login at: `http://mem-lab.duckdns.org:3000/login`
+Users can login at: `http://192.168.66.163:3000/login`
 
 Enter their API key to access their personal dashboard.
 
@@ -174,7 +174,7 @@ The current MCP configuration uses the `opti` user credentials. To use with othe
       "command": "python",
       "args": ["-m", "mcp"],
       "env": {
-        "OPENMEMORY_API_URL": "http://mem-lab.duckdns.org:8765",
+        "OPENMEMORY_API_URL": "http://192.168.66.163:8765",
         "OPENMEMORY_API_KEY": "NEW_USER_API_KEY_HERE"
       }
     }

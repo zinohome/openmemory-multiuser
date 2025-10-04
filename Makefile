@@ -27,7 +27,7 @@ build:
 	docker compose build
 
 up:
-	NEXT_PUBLIC_USER_ID=research-lab NEXT_PUBLIC_API_URL=http://mem-lab.duckdns.org:8765 docker compose up
+	NEXT_PUBLIC_USER_ID=research-lab NEXT_PUBLIC_API_URL=http://192.168.66.163:8765 docker compose up
 
 down:
 	docker compose down -v

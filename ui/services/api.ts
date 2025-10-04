@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Hardcode the API URL since environment variables aren't working properly
-const API_BASE_URL = 'http://mem-lab.duckdns.org:8765';
+const API_BASE_URL = 'http://192.168.66.163:8765';
 
 // Create axios instance with auth interceptor
 const api = axios.create({
